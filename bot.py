@@ -4,7 +4,6 @@ from telegram import Update
 import pytz
 from datetime import datetime
 import logging
-from apscheduler.schedulers.background import BackgroundScheduler
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -120,9 +119,7 @@ def start(update: Update, context: CallbackContext):
     update.message.reply_text(
         "👋 Welcome to the Bullion Price Bot!\n\n"
         "Commands:\n"
-        "/price - Get current prices\n"
-        "/subscribe - Get price updates every hour\n"
-        "/unsubscribe - Stop price updates"
+        "/price - Get current prices"
     )
 
 def get_price(update: Update, context: CallbackContext):
@@ -130,36 +127,6 @@ def get_price(update: Update, context: CallbackContext):
     update.message.reply_text("Fetching prices, please wait...")
     price_message = fetch_prices()
     update.message.reply_text(price_message)
-
-def send_price_update(context: CallbackContext):
-    """Sends price updates to subscribed users."""
-    price_message = fetch_prices()
-    for chat_id in context.bot_data.get('subscribed_users', set()):
-        try:
-            context.bot.send_message(chat_id=chat_id, text=price_message)
-        except Exception as e:
-            logger.error(f"Error sending update to {chat_id}: {e}")
-
-def subscribe(update: Update, context: CallbackContext):
-    """Handles the /subscribe command."""
-    chat_id = update.message.chat_id
-    if 'subscribed_users' not in context.bot_data:
-        context.bot_data['subscribed_users'] = set()
-    
-    if chat_id in context.bot_data['subscribed_users']:
-        update.message.reply_text("You're already subscribed to price updates!")
-    else:
-        context.bot_data['subscribed_users'].add(chat_id)
-        update.message.reply_text("You've been subscribed to hourly price updates! ✅")
-
-def unsubscribe(update: Update, context: CallbackContext):
-    """Handles the /unsubscribe command."""
-    chat_id = update.message.chat_id
-    if chat_id in context.bot_data.get('subscribed_users', set()):
-        context.bot_data['subscribed_users'].remove(chat_id)
-        update.message.reply_text("You've been unsubscribed from price updates.")
-    else:
-        update.message.reply_text("You're not currently subscribed to updates.")
 
 def error_handler(update: Update, context: CallbackContext):
     """Log Errors caused by Updates."""
@@ -181,15 +148,9 @@ def main():
     # Add command handlers
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("price", get_price))
-    dp.add_handler(CommandHandler("subscribe", subscribe))
-    dp.add_handler(CommandHandler("unsubscribe", unsubscribe))
 
     # Add error handler
     dp.add_error_handler(error_handler)
-
-    # Set up the job queue for periodic updates
-    job_queue = updater.job_queue
-    job_queue.run_repeating(send_price_update, interval=3600, first=0)  # Run every hour
 
     # Get port and app name from environment
     PORT = int(os.environ.get("PORT", "8443"))
