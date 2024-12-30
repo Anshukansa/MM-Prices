@@ -11,7 +11,6 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-from webdriver_manager.chrome import ChromeDriverManager
 
 # Configure logging
 logging.basicConfig(
@@ -28,21 +27,11 @@ def setup_driver():
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    
-    # Check if running on Heroku
-    if 'DYNO' in os.environ:
-        print("📦 Running on Heroku, using Heroku Chrome configuration")
-        chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
-        driver = webdriver.Chrome(
-            service=ChromeService(os.environ.get("CHROMEDRIVER_PATH")),
-            options=chrome_options
-        )
-    else:
-        print("💻 Running locally, using local Chrome configuration")
-        driver = webdriver.Chrome(
-            service=ChromeService(ChromeDriverManager().install()),
-            options=chrome_options
-        )
+    chrome_options.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
+    driver = webdriver.Chrome(
+        service=ChromeService(os.environ.get("CHROMEDRIVER_PATH")),
+        options=chrome_options
+    )
     print("✅ WebDriver setup complete")
     return driver
 
@@ -141,7 +130,8 @@ def fetch_prices():
 
 def start(update: Update, context: CallbackContext):
     """Handles the /start command."""
-    print(f"\n👋 New user started bot: {update.effective_user.id}")
+    user_id = update.effective_user.id
+    print(f"\n👋 New user started bot: {user_id}")
     update.message.reply_text(
         "👋 Welcome to the Bullion Price Bot!\n\n"
         "Commands:\n"
@@ -166,45 +156,32 @@ def error_handler(update: Update, context: CallbackContext):
 
 def main():
     print("\n🤖 Starting bot initialization...")
-    # Get the token from environment variable
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     if not TOKEN:
         print("❌ No TELEGRAM_TOKEN found!")
-        logger.error("No TELEGRAM_TOKEN found in environment variables!")
         return
 
     print("🔑 Token found, creating updater...")
-    # Create the Updater
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
     print("📝 Adding command handlers...")
-    # Add command handlers
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("price", get_price))
-
-    # Add error handler
     dp.add_error_handler(error_handler)
 
-    # Get port and app name from environment
     PORT = int(os.environ.get("PORT", "8443"))
     HEROKU_APP_NAME = os.environ.get("HEROKU_APP_NAME")
     
-    # Check if running on Heroku
-    if 'DYNO' in os.environ:
-        print(f"\n🌐 Starting webhook on port {PORT}")
-        updater.start_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}"
-        )
-    else:
-        print("\n📡 Starting polling...")
-        updater.start_polling()
+    print(f"\n🌐 Starting webhook on port {PORT}")
+    updater.start_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}"
+    )
     
     print("\n✅ Bot successfully started!")
-    logger.info("Bot started")
     updater.idle()
 
 if __name__ == "__main__":
