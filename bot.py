@@ -1,9 +1,11 @@
+#!/usr/bin/env python3
 import os
 from telegram.ext import Updater, CommandHandler, CallbackContext
 from telegram import Update
 import pytz
 from datetime import datetime
 import logging
+import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -12,42 +14,38 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-# Configure logging
+# Configure logging with timestamp
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    stream=sys.stdout
 )
-logger = logging.getLogger(__name__)
 
-# Suppress unnecessary logging
-logging.getLogger('telegram').setLevel(logging.INFO)
+# Suppress unnecessary logs
+logging.getLogger('telegram').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 logging.getLogger('asyncio').setLevel(logging.WARNING)
 
 def setup_driver():
-    """Sets up the Selenium WebDriver with Chromium options for Heroku-24."""
+    """Sets up the Selenium WebDriver with Chromium options."""
     print("🔧 Setting up WebDriver...")
     chrome_options = Options()
     chrome_options.add_argument('--headless')
     chrome_options.add_argument('--disable-gpu')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-setuid-sandbox')
-    chrome_options.add_argument('--single-process')
     
-    browser_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/chromium-browser")
-    driver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
-    
-    print(f"📦 Browser Path: {browser_path}")
-    print(f"📦 Driver Path: {driver_path}")
+    chrome_bin = "/usr/bin/chromium-browser"
+    chromedriver_path = "/usr/bin/chromedriver"
     
     try:
-        service = ChromeService(executable_path=driver_path)
-        chrome_options.binary_location = browser_path
+        service = ChromeService(executable_path=chromedriver_path)
+        chrome_options.binary_location = chrome_bin
         driver = webdriver.Chrome(service=service, options=chrome_options)
         print("✅ WebDriver setup complete")
         return driver
     except Exception as e:
-        print(f"❌ WebDriver setup failed: {e}")
+        print(f"❌ WebDriver setup failed: {str(e)}")
         raise
 
 def get_abc_bullion_price(driver):
@@ -55,7 +53,6 @@ def get_abc_bullion_price(driver):
     try:
         print("🌐 Accessing ABC Bullion website...")
         driver.get("https://www.abcbullion.com.au/store/gold/gabgtael375g-abc-bullion-tael-cast-bar")
-        print("📍 Waiting for ABC Bullion price element...")
         wait = WebDriverWait(driver, 10)
         price_element = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by p.price-container span.price"))
@@ -64,8 +61,7 @@ def get_abc_bullion_price(driver):
         print(f"💰 ABC Bullion price found: {price}")
         return price
     except Exception as e:
-        print(f"❌ Error fetching ABC Bullion price: {e}")
-        logger.error(f"Error fetching ABC Bullion price: {e}")
+        print(f"❌ Error fetching ABC Bullion price: {str(e)}")
         return "Price unavailable"
 
 def get_aarav_bullion_price(driver):
@@ -73,17 +69,14 @@ def get_aarav_bullion_price(driver):
     try:
         print("🌐 Accessing Aarav Bullion website...")
         driver.get("https://aaravbullion.in/")
-        print("📍 Waiting for Aarav Bullion container...")
         wait = WebDriverWait(driver, 15)
         swiper_container = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.swiper-container.s1"))
         )
-        print("✅ Swiper container found")
         
         script = """
         const data = [];
         const slides = document.querySelectorAll("div.swiper-slideTrending");
-        console.log('Found slides:', slides.length);
         slides.forEach(slide => {
             const table = slide.querySelector("table.Trending_Table_Root");
             if (table) {
@@ -107,8 +100,7 @@ def get_aarav_bullion_price(driver):
         print(f"💰 Aarav Bullion price found: {price}")
         return price if price else "Price unavailable"
     except Exception as e:
-        print(f"❌ Error fetching Aarav Bullion price: {e}")
-        logger.error(f"Error fetching Aarav Bullion price: {e}")
+        print(f"❌ Error fetching Aarav Bullion price: {str(e)}")
         return "Price unavailable"
 
 def fetch_prices():
@@ -129,19 +121,15 @@ def fetch_prices():
         print("\n✅ Price fetch complete!")
         return message
     except Exception as e:
-        error_msg = f"Error in fetch_prices: {e}"
-        print(f"\n❌ {error_msg}")
-        logger.error(error_msg)
+        print(f"\n❌ Error in fetch_prices: {str(e)}")
         return "Sorry, there was an error fetching the prices."
     finally:
-        print("\n🔄 Closing WebDriver...")
         driver.quit()
 
 def start(update: Update, context: CallbackContext):
-    """Handles the /start command."""
-    user_id = update.effective_user.id
-    username = update.effective_user.username
-    print(f"\n👋 New user started bot: {user_id} (@{username})")
+    """Handle /start command."""
+    user = update.effective_user
+    print(f"\n👋 New user started bot: {user.id} (@{user.username})")
     update.message.reply_text(
         "👋 Welcome to the Bullion Price Bot!\n\n"
         "Commands:\n"
@@ -149,23 +137,21 @@ def start(update: Update, context: CallbackContext):
     )
 
 def get_price(update: Update, context: CallbackContext):
-    """Handles the /price command."""
-    user_id = update.effective_user.id
-    username = update.effective_user.username
-    print(f"\n📱 Price request from user: {user_id} (@{username})")
+    """Handle /price command."""
+    user = update.effective_user
+    print(f"\n📱 Price request from user: {user.id} (@{user.username})")
     message = update.message.reply_text("Fetching prices, please wait...")
     try:
         price_message = fetch_prices()
-        print(f"\n📤 Sending price update to user: {user_id}")
+        print(f"\n📤 Sending price update to user: {user.id}")
         message.edit_text(price_message)
     except Exception as e:
-        print(f"❌ Error in price command: {e}")
+        print(f"❌ Error in price command: {str(e)}")
         message.edit_text("Sorry, there was an error fetching the prices.")
 
 def error_handler(update: Update, context: CallbackContext):
-    """Log Errors caused by Updates."""
+    """Handle errors."""
     print(f"\n❌ Error occurred: {context.error}")
-    logger.error(f'Update "{update}" caused error "{context.error}"')
     try:
         if update and update.message:
             update.message.reply_text("Sorry, something went wrong. Please try again later.")
@@ -173,37 +159,48 @@ def error_handler(update: Update, context: CallbackContext):
         pass
 
 def main():
-    print("\n🤖 Starting bot initialization...")
+    """Main function."""
+    print("\n🎬 Starting bot...")
+    
+    # Validate environment variables
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     if not TOKEN:
         print("❌ No TELEGRAM_TOKEN found!")
         return
 
-    print("🔑 Creating updater...")
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+    # Initialize bot
+    try:
+        updater = Updater(TOKEN, use_context=True)
+        dp = updater.dispatcher
 
-    print("📝 Adding command handlers...")
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("price", get_price))
-    dp.add_error_handler(error_handler)
+        # Add handlers
+        dp.add_handler(CommandHandler("start", start))
+        dp.add_handler(CommandHandler("price", get_price))
+        dp.add_error_handler(error_handler)
 
-    PORT = int(os.environ.get("PORT", "8443"))
-    HEROKU_APP_NAME = os.environ.get("HEROKU_APP_NAME")
-    
-    print(f"\n🌐 Starting webhook on port {PORT}")
-    updater.start_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}",
-        drop_pending_updates=True
-    )
-    
-    print("\n✅ Bot successfully started!")
-    print(f"🤖 Bot username: @{updater.bot.get_me().username}")
-    updater.idle()
+        # Start webhook
+        PORT = int(os.environ.get("PORT", "8443"))
+        APP_NAME = os.environ.get("HEROKU_APP_NAME")
+        
+        print("🌐 Starting webhook...")
+        updater.start_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=f"https://{APP_NAME}.herokuapp.com/{TOKEN}",
+            drop_pending_updates=True
+        )
+        
+        print("✅ Bot is running!")
+        updater.bot.get_me()  # Test the bot token
+        print(f"🤖 Bot username: @{updater.bot.username}")
+        
+        # Keep the bot running
+        updater.idle()
+        
+    except Exception as e:
+        print(f"❌ Critical error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    print("\n🎬 Starting bot script...")
     main()
