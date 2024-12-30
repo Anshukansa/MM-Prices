@@ -19,6 +19,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress unnecessary logging
+logging.getLogger('telegram').setLevel(logging.INFO)
+logging.getLogger('asyncio').setLevel(logging.WARNING)
+
 def setup_driver():
     """Sets up the Selenium WebDriver with Chromium options for Heroku-24."""
     print("🔧 Setting up WebDriver...")
@@ -192,10 +196,12 @@ def main():
         listen="0.0.0.0",
         port=PORT,
         url_path=TOKEN,
-        webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}"
+        webhook_url=f"https://{HEROKU_APP_NAME}.herokuapp.com/{TOKEN}",
+        drop_pending_updates=True
     )
     
     print("\n✅ Bot successfully started!")
+    print(f"🤖 Bot username: @{updater.bot.get_me().username}")
     updater.idle()
 
 if __name__ == "__main__":
