@@ -1,11 +1,9 @@
-#!/usr/bin/env python3
 import os
 from telegram.ext import Updater, CommandHandler, CallbackContext
-from telegram import Update
+from telegram import Update, Bot
 import pytz
 from datetime import datetime
 import logging
-import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -14,17 +12,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-# Configure logging with timestamp
+# Basic logging setup
 logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    stream=sys.stdout
+    format='%(asctime)s - %(message)s',
+    level=logging.INFO
 )
-
-# Suppress unnecessary logs
-logging.getLogger('telegram').setLevel(logging.WARNING)
-logging.getLogger('urllib3').setLevel(logging.WARNING)
-logging.getLogger('asyncio').setLevel(logging.WARNING)
 
 def setup_driver():
     """Sets up the Selenium WebDriver with Chromium options."""
@@ -162,45 +154,36 @@ def main():
     """Main function."""
     print("\n🎬 Starting bot...")
     
-    # Validate environment variables
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     if not TOKEN:
         print("❌ No TELEGRAM_TOKEN found!")
         return
 
-    # Initialize bot
-    try:
-        updater = Updater(TOKEN, use_context=True)
-        dp = updater.dispatcher
+    bot = Bot(token=TOKEN)
+    print(f"🤖 Bot username: @{bot.get_me().username}")
 
-        # Add handlers
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(CommandHandler("price", get_price))
-        dp.add_error_handler(error_handler)
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
 
-        # Start webhook
-        PORT = int(os.environ.get("PORT", "8443"))
-        APP_NAME = os.environ.get("HEROKU_APP_NAME")
-        
-        print("🌐 Starting webhook...")
-        updater.start_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path=TOKEN,
-            webhook_url=f"https://{APP_NAME}.herokuapp.com/{TOKEN}",
-            drop_pending_updates=True
-        )
-        
-        print("✅ Bot is running!")
-        updater.bot.get_me()  # Test the bot token
-        print(f"🤖 Bot username: @{updater.bot.username}")
-        
-        # Keep the bot running
-        updater.idle()
-        
-    except Exception as e:
-        print(f"❌ Critical error: {str(e)}")
-        sys.exit(1)
+    # Add handlers
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("price", get_price))
+    dp.add_error_handler(error_handler)
+
+    # Start webhook
+    PORT = int(os.environ.get("PORT", "8443"))
+    APP_NAME = os.environ.get("HEROKU_APP_NAME")
+    
+    print("🌐 Starting webhook...")
+    updater.start_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f"https://{APP_NAME}.herokuapp.com/{TOKEN}"
+    )
+    
+    print("✅ Bot is running!")
+    updater.idle()
 
 if __name__ == "__main__":
     main()
