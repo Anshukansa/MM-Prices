@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # List of subscriber IDs (replace with your actual subscriber IDs)
 SUBSCRIBERS = {
-    7932502148 # Example user ID - replace with real ones
+    1234567890,  # Example user ID - replace with real ones
 }
 
 def setup_driver():
@@ -26,7 +26,6 @@ def setup_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    # For Heroku
     chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
     
@@ -43,7 +42,6 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
     prices = []
     tabs = []
 
-    # Open tabs for both models and all storages
     for model in models_pair:
         for storage in storages:
             url = format_url(model, storage)
@@ -51,7 +49,6 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
             driver.execute_script(f"window.open('{url}', '_blank');")
             tabs.append((driver.window_handles[-1], model, storage, url))
 
-    # Fetch prices from open tabs
     for tab, model, storage, url in tabs:
         driver.switch_to.window(tab)
         try:
@@ -79,48 +76,87 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
     driver.switch_to.window(driver.window_handles[0])
     return prices
 
-def format_message(results):
-    """Formats the results into a readable message."""
+def group_models_by_series(models_data):
+    """Groups models by their series (11, 12, 13, 14)."""
+    series_groups = {}
+    for model in models_data:
+        series = model.split()[1][0:2]  # Gets "11", "12", "13", "14" from model name
+        if series not in series_groups:
+            series_groups[series] = []
+        series_groups[series].append(model)
+    return series_groups
+
+def format_price(price):
+    """Formats the price with appropriate symbol and color emoji."""
+    if price == "N/A":
+        return "❌"
+    try:
+        price_val = float(price)
+        return f"💰${price:,}"
+    except:
+        return "❌"
+
+def format_message_by_series(results):
+    """Formats the results into a series of messages grouped by iPhone series."""
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    message = f"📱 iPhone Prices (as of {current_time})\n\n"
+    messages = []
     
-    # Add header row
-    header = "Model".ljust(20)
-    for storage in ["64GB", "128GB", "256GB", "512GB", "1TB"]:
-        header += f"| {storage.ljust(8)}"
-    message += f"`{header}`\n"
+    # Header message
+    header_msg = (
+        f"📱 *iPhone Price Update*\n"
+        f"🕒 {current_time}\n"
+        f"🏪 MobileMonster.com.au\n"
+        f"{'='*32}\n\n"
+    )
+    messages.append(header_msg)
+
+    # Group models by series
+    series_groups = group_models_by_series(results["Model"])
     
-    # Add separator
-    message += "`" + "-" * 20 + ("|" + "-" * 9) * 5 + "`\n"
+    # Create a message for each series
+    for series in sorted(series_groups.keys()):
+        series_msg = f"*iPhone {series} Series*\n\n"
+        
+        for model in series_groups[series]:
+            model_msg = f"📱 *{model}*\n"
+            model_idx = results["Model"].index(model)
+            
+            for storage in ["64GB", "128GB", "256GB", "512GB", "1TB"]:
+                if model_idx < len(results[storage]):
+                    price = results[storage][model_idx]
+                    if price and price != "N/A":
+                        model_msg += f"  • {storage}: {format_price(price)}\n"
+                    else:
+                        model_msg += f"  • {storage}: ❌\n"
+            
+            series_msg += f"{model_msg}\n"
+        
+        messages.append(series_msg)
     
-    # Add data rows
-    for model in results["Model"]:
-        row = model.ljust(20)
-        for storage in ["64GB", "128GB", "256GB", "512GB", "1TB"]:
-            idx = results["Model"].index(model)
-            price = results[storage][idx] if idx < len(results[storage]) else "N/A"
-            if price and price != "N/A":
-                price = f"${price}"
-            row += f"| {str(price).ljust(8)}"
-        message += f"`{row}`\n"
+    # Add footer
+    footer_msg = (
+        f"{'='*32}\n"
+        "💡 *Legend*:\n"
+        "💰 = Available Price\n"
+        "❌ = Not Available\n\n"
+        "📊 _Prices updated every hour_"
+    )
+    messages.append(footer_msg)
     
-    return message
+    return messages
 
 def send_update():
     """Main function to fetch prices and send updates."""
-    # Get Telegram token
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN not set!")
 
-    # Initialize bot
     bot = telegram.Bot(token=token)
     
     if not SUBSCRIBERS:
         logging.info("No subscribers in the list!")
         return
 
-    # List of models and storage options
     models = [
         "iphone-11", "iphone-11-pro", "iphone-11-pro-max",
         "iphone-12", "iphone-12-mini", "iphone-12-pro", "iphone-12-pro-max",
@@ -129,21 +165,17 @@ def send_update():
     ]
     storages = ["64gb", "128gb", "256gb", "512gb", "1tb"]
 
-    # Initialize results dictionary
     results = {storage.upper(): [] for storage in storages}
     results["Model"] = []
 
-    # Initialize WebDriver
     driver = setup_driver()
     
     try:
-        # Process models in pairs
         for i in range(0, len(models), 2):
             models_pair = models[i:i + 2]
             logging.info(f"Processing models: {models_pair}")
             fetched_data = fetch_prices_for_two_models(driver, models_pair, storages)
 
-            # Organize results
             for model, storage, price in fetched_data:
                 formatted_model = model.replace("-", " ").title()
                 if formatted_model not in results["Model"]:
@@ -153,19 +185,15 @@ def send_update():
                     results[col_name].append("")
                 results[col_name].append(price)
 
-        # Ensure all columns align
         max_rows = max(len(results[col]) for col in results)
         for col in results:
             while len(results[col]) < max_rows:
                 results[col].append("")
 
-        # Format message and send to subscribers
-        message = format_message(results)
+        # Format messages by series
+        messages = format_message_by_series(results)
         
-        # Split message if too long
-        max_length = 4096
-        messages = [message[i:i+max_length] for i in range(0, len(message), max_length)]
-        
+        # Send messages to subscribers
         for user_id in SUBSCRIBERS:
             try:
                 for msg in messages:
@@ -174,7 +202,7 @@ def send_update():
                         text=msg,
                         parse_mode='Markdown'
                     )
-                logging.info(f"Price matrix sent to user {user_id}")
+                    logging.info(f"Message part sent to user {user_id}")
             except Exception as e:
                 logging.error(f"Failed to send message to user {user_id}: {e}")
 
