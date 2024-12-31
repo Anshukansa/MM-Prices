@@ -47,16 +47,30 @@ def setup_driver():
 def get_abc_price(driver):
     """Gets price from ABC Bullion."""
     try:
-        driver.get("https://www.abcbullion.com.au/store/gold/gabgtael375g-abc-bullion-tael-cast-bar")
-        wait = WebDriverWait(driver, 30)
-        price_element = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by p.price-container span.price"))
+        driver.get("https://www.abcbullion.com.au/store/gabgtael375g-abc-bullion-tael-cast-bar")
+        wait = WebDriverWait(driver, 15)
+        
+        # Wait until the 'scope-buy-by' div is present
+        buy_by_section = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by"))
         )
-        price = price_element.text.strip()
+        time.sleep(2)  # Additional wait to ensure content is fully loaded
+
+        # Extract the price using JavaScript or Selenium's find methods
+        # # Method 1: Using Selenium's find_element
+        # price_element = buy_by_section.find_element(By.CSS_SELECTOR, "p.price-container span.price")
+        # price = price_element.text.strip()
+        
+        # Alternatively, Method 2: Using JavaScript execution
+        script = """
+        return document.querySelector("div.scope-buy-by p.price-container span.price").innerText.trim();
+        """
+        price = driver.execute_script(script)
+        
         logger.info(f"Successfully got ABC Bullion price: {price}")
         return price
     except Exception as e:
-        logger.error(f"Error getting ABC price: {e}")
+        logger.error(f"Error getting ABC Bullion price: {e}")
         return None
 
 def get_aarav_price(driver):
