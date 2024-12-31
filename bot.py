@@ -1,186 +1,187 @@
 import os
-import time
-from datetime import datetime
-import logging
 from selenium import webdriver
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+import logging
 import telegram
+from datetime import datetime
 
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # List of subscriber IDs (replace with your actual subscriber IDs)
 SUBSCRIBERS = {
-    7932502148,
-    7736209700
+    7932502148 # Example user ID - replace with real ones
 }
-
-# Maximum retry attempts for each website
-MAX_RETRIES = 50
-RETRY_DELAY = 10  # seconds between retries
 
 def setup_driver():
     """Sets up the Selenium WebDriver with headless Chrome."""
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
 
+    # For Heroku
     chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
     
-    chrome_options.binary_location = chrome_binary_path
+    options.binary_location = chrome_binary_path
     service = Service(executable_path=chromedriver_path)
     
-    return webdriver.Chrome(service=service, options=chrome_options)
+    return webdriver.Chrome(service=service, options=options)
 
-def get_abc_price(driver):
-    """Gets price from ABC Bullion."""
-    try:
-        driver.get("https://www.abcbullion.com.au/store/gabgtael375g-abc-bullion-tael-cast-bar")
-        wait = WebDriverWait(driver, 15)
-        
-        # Wait until the 'scope-buy-by' div is present
-        buy_by_section = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by"))
-        )
-        time.sleep(2)  # Additional wait to ensure content is fully loaded
+def format_url(model, storage):
+    base_model = "-".join(model.split("-")[:2])
+    return f"https://mobilemonster.com.au/sell-your-phone/apple/mobiles/{base_model}/{model}-{storage}"
 
-        # Extract the price using JavaScript or Selenium's find methods
-        # # Method 1: Using Selenium's find_element
-        # price_element = buy_by_section.find_element(By.CSS_SELECTOR, "p.price-container span.price")
-        # price = price_element.text.strip()
-        
-        # Alternatively, Method 2: Using JavaScript execution
-        script = """
-        return document.querySelector("div.scope-buy-by p.price-container span.price").innerText.trim();
-        """
-        price = driver.execute_script(script)
-        
-        logger.info(f"Successfully got ABC Bullion price: {price}")
-        return price
-    except Exception as e:
-        logger.error(f"Error getting ABC Bullion price: {e}")
-        return None
+def fetch_prices_for_two_models(driver, models_pair, storages):
+    prices = []
+    tabs = []
 
-def get_aarav_price(driver):
-    """Gets price from Aarav Bullion."""
-    try:
-        driver.get("https://aaravbullion.in/")
-        wait = WebDriverWait(driver, 15)
-        swiper = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.swiper-container.s1"))
-        )
-        time.sleep(2)
-        
-        script = """
-        const data = [];
-        document.querySelectorAll("div.swiper-slideTrending table.Trending_Table_Root table.second_table tr").forEach(row => {
-            const price = row.querySelector("td:nth-child(2) span")?.innerText.trim();
-            if (price) data.push(price);
-        });
-        return data[0];
-        """
-        price = driver.execute_script(script)
-        logger.info(f"Successfully got Aarav Bullion price: {price}")
-        return price
-    except Exception as e:
-        logger.error(f"Error getting Aarav price: {e}")
-        return None
+    # Open tabs for both models and all storages
+    for model in models_pair:
+        for storage in storages:
+            url = format_url(model, storage)
+            logging.info(f"Opening URL: {url}")
+            driver.execute_script(f"window.open('{url}', '_blank');")
+            tabs.append((driver.window_handles[-1], model, storage, url))
 
-def send_message_to_subscribers(bot, message):
-    """Sends a message to all subscribers."""
-    for user_id in SUBSCRIBERS:
+    # Fetch prices from open tabs
+    for tab, model, storage, url in tabs:
+        driver.switch_to.window(tab)
         try:
-            bot.send_message(chat_id=user_id, text=message)
-            logger.info(f"Message sent to user {user_id}")
-            time.sleep(1)  # Avoid hitting rate limits
+            if "Page Not Found" in driver.page_source or "404" in driver.title:
+                price = "N/A"
+            else:
+                reduced_price_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, "//label/div[contains(text(), 'I will accept the reduced price of')]")
+                    )
+                )
+                price_text = reduced_price_element.text
+                if "AU$" in price_text:
+                    price = price_text.split("AU$")[-1].split()[0].replace(',', '')
+                else:
+                    price = "N/A"
+            logging.info(f"Price for {model} ({storage}): {price}")
         except Exception as e:
-            logger.error(f"Failed to send message to user {user_id}: {e}")
+            logging.error(f"Error fetching price for {model} ({storage}): {e}")
+            price = "N/A"
 
-def retry_get_prices():
-    """Main function to get prices with retries and send updates."""
+        prices.append((model, storage, price))
+        driver.close()
+
+    driver.switch_to.window(driver.window_handles[0])
+    return prices
+
+def format_message(results):
+    """Formats the results into a readable message."""
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    message = f"📱 iPhone Prices (as of {current_time})\n\n"
+    
+    # Add header row
+    header = "Model".ljust(20)
+    for storage in ["64GB", "128GB", "256GB", "512GB", "1TB"]:
+        header += f"| {storage.ljust(8)}"
+    message += f"`{header}`\n"
+    
+    # Add separator
+    message += "`" + "-" * 20 + ("|" + "-" * 9) * 5 + "`\n"
+    
+    # Add data rows
+    for model in results["Model"]:
+        row = model.ljust(20)
+        for storage in ["64GB", "128GB", "256GB", "512GB", "1TB"]:
+            idx = results["Model"].index(model)
+            price = results[storage][idx] if idx < len(results[storage]) else "N/A"
+            if price and price != "N/A":
+                price = f"${price}"
+            row += f"| {str(price).ljust(8)}"
+        message += f"`{row}`\n"
+    
+    return message
+
+def send_update():
+    """Main function to fetch prices and send updates."""
+    # Get Telegram token
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN not set!")
 
+    # Initialize bot
     bot = telegram.Bot(token=token)
     
     if not SUBSCRIBERS:
-        logger.info("No subscribers in the list!")
+        logging.info("No subscribers in the list!")
         return
 
-    abc_price = None
-    aarav_price = None
-    abc_attempts = 0
-    aarav_attempts = 0
+    # List of models and storage options
+    models = [
+        "iphone-11", "iphone-11-pro", "iphone-11-pro-max",
+        "iphone-12", "iphone-12-mini", "iphone-12-pro", "iphone-12-pro-max",
+        "iphone-13", "iphone-13-mini", "iphone-13-pro", "iphone-13-pro-max",
+        "iphone-14", "iphone-14-plus", "iphone-14-pro", "iphone-14-pro-max"
+    ]
+    storages = ["64gb", "128gb", "256gb", "512gb", "1tb"]
+
+    # Initialize results dictionary
+    results = {storage.upper(): [] for storage in storages}
+    results["Model"] = []
+
+    # Initialize WebDriver
+    driver = setup_driver()
     
-    while (abc_price is None or aarav_price is None) and (abc_attempts < MAX_RETRIES or aarav_attempts < MAX_RETRIES):
-        driver = setup_driver()
-        try:
-            # Try to get ABC price if we don't have it yet
-            if abc_price is None and abc_attempts < MAX_RETRIES:
-                abc_price = get_abc_price(driver)
-                abc_attempts += 1
-                if abc_price and aarav_price is None:
-                    # If we got ABC but not Aarav, send partial update
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    message = (
-                        f"📊 Partial Update - {current_time}\n\n"
-                        f"ABC Bullion: ${abc_price}\n"
-                        f"(Still trying to get Aarav Bullion price...)"
-                    )
-                    send_message_to_subscribers(bot, message)
+    try:
+        # Process models in pairs
+        for i in range(0, len(models), 2):
+            models_pair = models[i:i + 2]
+            logging.info(f"Processing models: {models_pair}")
+            fetched_data = fetch_prices_for_two_models(driver, models_pair, storages)
 
-            # Try to get Aarav price if we don't have it yet
-            if aarav_price is None and aarav_attempts < MAX_RETRIES:
-                aarav_price = get_aarav_price(driver)
-                aarav_attempts += 1
-                if aarav_price and abc_price is None:
-                    # If we got Aarav but not ABC, send partial update
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    message = (
-                        f"📊 Partial Update - {current_time}\n\n"
-                        f"Aarav Bullion: Rs.{aarav_price}\n"
-                        f"(Still trying to get ABC Bullion price...)"
-                    )
-                    send_message_to_subscribers(bot, message)
+            # Organize results
+            for model, storage, price in fetched_data:
+                formatted_model = model.replace("-", " ").title()
+                if formatted_model not in results["Model"]:
+                    results["Model"].append(formatted_model)
+                col_name = storage.upper()
+                while len(results[col_name]) < len(results["Model"]) - 1:
+                    results[col_name].append("")
+                results[col_name].append(price)
 
-        finally:
-            driver.quit()
+        # Ensure all columns align
+        max_rows = max(len(results[col]) for col in results)
+        for col in results:
+            while len(results[col]) < max_rows:
+                results[col].append("")
 
-        # If we don't have both prices yet, wait before retrying
-        if abc_price is None or aarav_price is None:
-            logger.info(f"Waiting {RETRY_DELAY} seconds before retrying...")
-            time.sleep(RETRY_DELAY)
-
-    # Send final update if we have any new information
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    message = f"📊 Final Update - {current_time}\n\n"
-    
-    if abc_price:
-        message += f"ABC Bullion: ${abc_price}\n"
-    else:
-        message += "ABC Bullion: Price unavailable after maximum retries\n"
+        # Format message and send to subscribers
+        message = format_message(results)
         
-    if aarav_price:
-        message += f"Aarav Bullion: Rs.{aarav_price}\n"
-    else:
-        message += "Aarav Bullion: Price unavailable after maximum retries\n"
+        # Split message if too long
+        max_length = 4096
+        messages = [message[i:i+max_length] for i in range(0, len(message), max_length)]
+        
+        for user_id in SUBSCRIBERS:
+            try:
+                for msg in messages:
+                    bot.send_message(
+                        chat_id=user_id,
+                        text=msg,
+                        parse_mode='Markdown'
+                    )
+                logging.info(f"Price matrix sent to user {user_id}")
+            except Exception as e:
+                logging.error(f"Failed to send message to user {user_id}: {e}")
 
-    send_message_to_subscribers(bot, message)
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
-    logger.info("Starting price update script with retries...")
-    retry_get_prices()
-    logger.info("Price update script completed.")
+    logging.info("Starting price update script...")
+    send_update()
+    logging.info("Price update script completed.")
