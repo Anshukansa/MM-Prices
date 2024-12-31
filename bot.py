@@ -92,7 +92,7 @@ def format_price(price):
         return "❌"
     try:
         price_val = float(price)
-        return f"💰${price:,}"
+        return f"💰${price}:"
     except:
         return "❌"
 
