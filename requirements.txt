@@ -1,12 +1,21 @@
-
+# Selenium requirements
 selenium==4.15.2
 webdriver-manager==4.0.1
+
+# Telegram Bot requirements
 python-telegram-bot==13.7
+
+# Basic utilities
 python-dotenv==1.0.0
 requests==2.31.0
+
+# Time handling
 pytz==2023.3.post1
-logging==0.4.9.6
+
+# Async support
 aiohttp==3.8.5
 async-timeout==4.0.3
+
+# Extras for web scraping
 beautifulsoup4==4.12.2
 lxml==4.9.3
