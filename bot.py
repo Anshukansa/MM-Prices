@@ -68,7 +68,7 @@ def get_abc_bullion_price(driver, url):
         print(f"Navigated to ABC Bullion URL: {url}")
 
         # Wait until the price element is present
-        wait = WebDriverWait(driver, 10)  # 10 seconds timeout
+        wait = WebDriverWait(driver, 30)  # Increased timeout to 15 seconds
         price_element = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by p.price-container span.price"))
         )
