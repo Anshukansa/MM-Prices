@@ -1,3 +1,4 @@
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -9,26 +10,42 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
 )
-from webdriver_manager.chrome import ChromeDriverManager
 import time
 
 def setup_driver(headless=True):
     """
-    Sets up the Selenium WebDriver with desired options.
+    Sets up the Selenium WebDriver with desired options for Heroku.
     """
     chrome_options = Options()
+    
     if headless:
         chrome_options.add_argument("--headless")  # Run in headless mode
-    chrome_options.add_argument("--disable-gpu")  # Applicable to Windows OS only
-    chrome_options.add_argument("--no-sandbox")  # Bypass OS security model
-    chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
+    
+    # Add necessary arguments for Heroku
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--proxy-server='direct://'")
+    chrome_options.add_argument("--proxy-bypass-list=*")
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--disable-infobars")
+    chrome_options.add_argument("--disable-browser-side-navigation")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     chrome_options.add_argument("--blink-settings=imagesEnabled=false")  # Disable images for faster loading
 
-    # Initialize WebDriver using webdriver-manager for automatic driver management
-    driver = webdriver.Chrome(
-        service=ChromeService(ChromeDriverManager().install()),
-        options=chrome_options
-    )
+    # Set the binary location for Chrome
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/app/.apt/usr/bin/google-chrome")
+    chrome_options.binary_location = chrome_binary_path
+
+    # Set the Chromedriver path
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/app/.chromedriver/bin/chromedriver")
+
+    # Initialize WebDriver using the specified paths
+    service = ChromeService(executable_path=chromedriver_path)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    
     return driver
 
 def get_abc_bullion_price(driver, url):
