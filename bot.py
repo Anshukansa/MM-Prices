@@ -15,18 +15,9 @@ from selenium.common.exceptions import (
 def setup_driver(headless=True):
     """
     Sets up the Selenium WebDriver with desired options for Heroku.
-
-    Args:
-        headless (bool): Whether to run Chrome in headless mode.
-
-    Returns:
-        webdriver.Chrome: Configured Selenium Chrome WebDriver.
-
-    Raises:
-        EnvironmentError: If required environment variables are not set.
     """
     chrome_options = Options()
-
+    
     if headless:
         chrome_options.add_argument("--headless")  # Run in headless mode
 
@@ -45,9 +36,9 @@ def setup_driver(headless=True):
     chrome_options.add_argument("--blink-settings=imagesEnabled=false")  # Disable images for faster loading
 
     # Retrieve the Chrome binary location from environment variables
-    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN")
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_SHIM")
     if not chrome_binary_path:
-        raise EnvironmentError("GOOGLE_CHROME_BIN environment variable not set")
+        raise EnvironmentError("GOOGLE_CHROME_SHIM environment variable not set")
     chrome_options.binary_location = chrome_binary_path
 
     # Retrieve the Chromedriver path from environment variables
@@ -185,9 +176,9 @@ def main():
     Main function to execute the Selenium scraping tasks.
     """
     # Log the environment variables for debugging
-    chrome_bin = os.environ.get("GOOGLE_CHROME_BIN")
+    chrome_bin = os.environ.get("GOOGLE_CHROME_SHIM")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
-    print("GOOGLE_CHROME_BIN:", chrome_bin)
+    print("GOOGLE_CHROME_SHIM:", chrome_bin)
     print("CHROMEDRIVER_PATH:", chromedriver_path)
 
     # Initialize the WebDriver
