@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 # List of subscriber IDs (replace with your actual subscriber IDs)
 SUBSCRIBERS = {
-    7932502148
+    7932502148,
+    7287154211,
+    7736209700
 }
 
 def setup_driver():
