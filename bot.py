@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
 # List of subscriber IDs (replace with your actual subscriber IDs)
 SUBSCRIBERS = {
     7932502148,
-    7287154211,
     7736209700
 }
+
+# Maximum retry attempts for each website
+MAX_RETRIES = 50
+RETRY_DELAY = 10  # seconds between retries
 
 def setup_driver():
     """Sets up the Selenium WebDriver with headless Chrome."""
@@ -33,7 +36,6 @@ def setup_driver():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
 
-    # Get Chrome paths from environment variables
     chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
     
@@ -42,83 +44,48 @@ def setup_driver():
     
     return webdriver.Chrome(service=service, options=chrome_options)
 
-def get_prices():
-    """Gets prices from both websites."""
-    driver = setup_driver()
+def get_abc_price(driver):
+    """Gets price from ABC Bullion."""
     try:
-        # ABC Bullion
-        try:
-            driver.get("https://www.abcbullion.com.au/store/gold/gabgtael375g-abc-bullion-tael-cast-bar")
-            wait = WebDriverWait(driver, 30)
-            price_element = wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by p.price-container span.price"))
-            )
-            abc_price = price_element.text.strip()
-            logger.info(f"ABC Bullion price: {abc_price}")
-        except Exception as e:
-            logger.error(f"Error getting ABC price: {e}")
-            abc_price = None
+        driver.get("https://www.abcbullion.com.au/store/gold/gabgtael375g-abc-bullion-tael-cast-bar")
+        wait = WebDriverWait(driver, 30)
+        price_element = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by p.price-container span.price"))
+        )
+        price = price_element.text.strip()
+        logger.info(f"Successfully got ABC Bullion price: {price}")
+        return price
+    except Exception as e:
+        logger.error(f"Error getting ABC price: {e}")
+        return None
 
-        # Aarav Bullion
-        try:
-            driver.get("https://aaravbullion.in/")
-            wait = WebDriverWait(driver, 15)
-            swiper = wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "div.swiper-container.s1"))
-            )
-            time.sleep(2)
-            
-            script = """
-            const data = [];
-            document.querySelectorAll("div.swiper-slideTrending table.Trending_Table_Root table.second_table tr").forEach(row => {
-                const price = row.querySelector("td:nth-child(2) span")?.innerText.trim();
-                if (price) data.push(price);
-            });
-            return data[0];
-            """
-            aarav_price = driver.execute_script(script)
-            logger.info(f"Aarav Bullion price: {aarav_price}")
-        except Exception as e:
-            logger.error(f"Error getting Aarav price: {e}")
-            aarav_price = None
-
-        return abc_price, aarav_price
-    
-    finally:
-        driver.quit()
-
-def send_updates():
-    """Main function to send price updates to all subscribers."""
-    # Get Telegram token
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not token:
-        raise ValueError("TELEGRAM_BOT_TOKEN not set!")
-
-    # Initialize bot
-    bot = telegram.Bot(token=token)
-    
-    if not SUBSCRIBERS:
-        logger.info("No subscribers in the list!")
-        return
-
-    # Get prices
-    abc_price, aarav_price = get_prices()
-    
-    # Create message
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    message = f"📊 Gold Prices as of {current_time}\n\n"
-    
-    if abc_price:
-        message += f"ABC Bullion: ${abc_price}\n"
-    else:
-        message += "ABC Bullion: Price unavailable\n"
+def get_aarav_price(driver):
+    """Gets price from Aarav Bullion."""
+    try:
+        driver.get("https://aaravbullion.in/")
+        wait = WebDriverWait(driver, 15)
+        swiper = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.swiper-container.s1"))
+        )
+        time.sleep(2)
         
-    if aarav_price:
-        message += f"Aarav Bullion: Rs.{aarav_price}\n"
-    else:
-        message += "Aarav Bullion: Price unavailable\n"
+        script = """
+        const data = [];
+        document.querySelectorAll("div.swiper-slideTrending table.Trending_Table_Root table.second_table tr").forEach(row => {
+            const price = row.querySelector("td:nth-child(2) span")?.innerText.trim();
+            if (price) data.push(price);
+        });
+        return data[0];
+        """
+        price = driver.execute_script(script)
+        logger.info(f"Successfully got Aarav Bullion price: {price}")
+        return price
+    except Exception as e:
+        logger.error(f"Error getting Aarav price: {e}")
+        return None
 
-    # Send to all subscribers
+def send_message_to_subscribers(bot, message):
+    """Sends a message to all subscribers."""
     for user_id in SUBSCRIBERS:
         try:
             bot.send_message(chat_id=user_id, text=message)
@@ -127,7 +94,79 @@ def send_updates():
         except Exception as e:
             logger.error(f"Failed to send message to user {user_id}: {e}")
 
+def retry_get_prices():
+    """Main function to get prices with retries and send updates."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise ValueError("TELEGRAM_BOT_TOKEN not set!")
+
+    bot = telegram.Bot(token=token)
+    
+    if not SUBSCRIBERS:
+        logger.info("No subscribers in the list!")
+        return
+
+    abc_price = None
+    aarav_price = None
+    abc_attempts = 0
+    aarav_attempts = 0
+    
+    while (abc_price is None or aarav_price is None) and (abc_attempts < MAX_RETRIES or aarav_attempts < MAX_RETRIES):
+        driver = setup_driver()
+        try:
+            # Try to get ABC price if we don't have it yet
+            if abc_price is None and abc_attempts < MAX_RETRIES:
+                abc_price = get_abc_price(driver)
+                abc_attempts += 1
+                if abc_price and aarav_price is None:
+                    # If we got ABC but not Aarav, send partial update
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    message = (
+                        f"📊 Partial Update - {current_time}\n\n"
+                        f"ABC Bullion: ${abc_price}\n"
+                        f"(Still trying to get Aarav Bullion price...)"
+                    )
+                    send_message_to_subscribers(bot, message)
+
+            # Try to get Aarav price if we don't have it yet
+            if aarav_price is None and aarav_attempts < MAX_RETRIES:
+                aarav_price = get_aarav_price(driver)
+                aarav_attempts += 1
+                if aarav_price and abc_price is None:
+                    # If we got Aarav but not ABC, send partial update
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    message = (
+                        f"📊 Partial Update - {current_time}\n\n"
+                        f"Aarav Bullion: Rs.{aarav_price}\n"
+                        f"(Still trying to get ABC Bullion price...)"
+                    )
+                    send_message_to_subscribers(bot, message)
+
+        finally:
+            driver.quit()
+
+        # If we don't have both prices yet, wait before retrying
+        if abc_price is None or aarav_price is None:
+            logger.info(f"Waiting {RETRY_DELAY} seconds before retrying...")
+            time.sleep(RETRY_DELAY)
+
+    # Send final update if we have any new information
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    message = f"📊 Final Update - {current_time}\n\n"
+    
+    if abc_price:
+        message += f"ABC Bullion: ${abc_price}\n"
+    else:
+        message += "ABC Bullion: Price unavailable after maximum retries\n"
+        
+    if aarav_price:
+        message += f"Aarav Bullion: Rs.{aarav_price}\n"
+    else:
+        message += "Aarav Bullion: Price unavailable after maximum retries\n"
+
+    send_message_to_subscribers(bot, message)
+
 if __name__ == "__main__":
-    logger.info("Starting price update script...")
-    send_updates()
+    logger.info("Starting price update script with retries...")
+    retry_get_prices()
     logger.info("Price update script completed.")
