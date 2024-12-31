@@ -1,4 +1,5 @@
 import os
+import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -10,17 +11,25 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     TimeoutException,
 )
-import time
 
 def setup_driver(headless=True):
     """
     Sets up the Selenium WebDriver with desired options for Heroku.
+
+    Args:
+        headless (bool): Whether to run Chrome in headless mode.
+
+    Returns:
+        webdriver.Chrome: Configured Selenium Chrome WebDriver.
+
+    Raises:
+        EnvironmentError: If required environment variables are not set.
     """
     chrome_options = Options()
-    
+
     if headless:
         chrome_options.add_argument("--headless")  # Run in headless mode
-    
+
     # Add necessary arguments for Heroku
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
@@ -35,26 +44,37 @@ def setup_driver(headless=True):
     chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     chrome_options.add_argument("--blink-settings=imagesEnabled=false")  # Disable images for faster loading
 
-    # Set the binary location for Chrome
-    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/app/.apt/usr/bin/google-chrome")
+    # Retrieve the Chrome binary location from environment variables
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN")
+    if not chrome_binary_path:
+        raise EnvironmentError("GOOGLE_CHROME_BIN environment variable not set")
     chrome_options.binary_location = chrome_binary_path
 
-    # Set the Chromedriver path
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/app/.chromedriver/bin/chromedriver")
+    # Retrieve the Chromedriver path from environment variables
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    if not chromedriver_path:
+        raise EnvironmentError("CHROMEDRIVER_PATH environment variable not set")
 
     # Initialize WebDriver using the specified paths
     service = ChromeService(executable_path=chromedriver_path)
     driver = webdriver.Chrome(service=service, options=chrome_options)
-    
+
     return driver
 
 def get_abc_bullion_price(driver, url):
     """
-    Extracts the price from ABC Bullion website.
+    Extracts the price from the ABC Bullion website.
+
+    Args:
+        driver (webdriver.Chrome): Selenium WebDriver instance.
+        url (str): URL of the ABC Bullion product page.
+
+    Returns:
+        str or None: Extracted price text or None if not found.
     """
     try:
         driver.get(url)
-        # print(f"Navigated to ABC Bullion URL: {url}")
+        print(f"Navigated to ABC Bullion URL: {url}")
 
         # Wait until the price element is present
         wait = WebDriverWait(driver, 10)  # 10 seconds timeout
@@ -76,18 +96,25 @@ def get_abc_bullion_price(driver, url):
 
 def get_aarav_bullion_prices(driver, url):
     """
-    Extracts specific prices from Aarav Bullion website using JavaScript execution to avoid stale elements.
+    Extracts specific prices from the Aarav Bullion website using JavaScript execution to avoid stale elements.
+
+    Args:
+        driver (webdriver.Chrome): Selenium WebDriver instance.
+        url (str): URL of the Aarav Bullion homepage.
+
+    Returns:
+        dict or None: First extracted price entry or None if not found.
     """
     try:
         driver.get(url)
-        # print(f"Navigated to Aarav Bullion URL: {url}")
+        print(f"Navigated to Aarav Bullion URL: {url}")
 
         # Wait until the swiper-container is present
         wait = WebDriverWait(driver, 15)  # Increased timeout to 15 seconds
         swiper_container = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.swiper-container.s1"))
         )
-        # print("Swiper container found.")
+        print("Swiper container found.")
 
         # Optional: Wait for slides to load
         time.sleep(2)  # Adjust based on network speed
@@ -125,7 +152,7 @@ def get_aarav_bullion_prices(driver, url):
 
         # Execute the JavaScript and retrieve the data
         prices = driver.execute_script(script)
-        # print(f"Extracted {len(prices)} price entries from Aarav Bullion.")
+        print(f"Extracted {len(prices)} price entries from Aarav Bullion.")
 
         if not prices:
             print("No price entries found. Possible reasons:")
@@ -141,7 +168,8 @@ def get_aarav_bullion_prices(driver, url):
         buy_link = first_price['buyLink']
 
         print(f"\nAarav Bullion Prices: Rs.{price}")
-        # print(f"{label}: {price}")
+        print(f"{label}: {price}")
+        print(f"Buy Link: {buy_link}")
 
         return first_price
 
@@ -153,8 +181,16 @@ def get_aarav_bullion_prices(driver, url):
         return None
 
 def main():
+    """
+    Main function to execute the Selenium scraping tasks.
+    """
+    # Log the environment variables for debugging
+    chrome_bin = os.environ.get("GOOGLE_CHROME_BIN")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    print("GOOGLE_CHROME_BIN:", chrome_bin)
+    print("CHROMEDRIVER_PATH:", chromedriver_path)
+
     # Initialize the WebDriver
-    # Set headless=False for debugging to see the browser actions
     driver = setup_driver(headless=True)
 
     try:
@@ -166,12 +202,21 @@ def main():
         aarav_bullion_url = "https://aaravbullion.in/"
         aarav_price = get_aarav_bullion_prices(driver, aarav_bullion_url)
 
-        # If you wish to handle more entries in the future, consider storing them appropriately
+        # Example Output Handling
+        if abc_price:
+            print(f"\nRetrieved ABC Bullion Price: ${abc_price}")
+        else:
+            print("\nFailed to retrieve ABC Bullion Price.")
+
+        if aarav_price:
+            print(f"\nRetrieved Aarav Bullion Price: Rs.{aarav_price['price']}")
+        else:
+            print("\nFailed to retrieve Aarav Bullion Prices.")
 
     finally:
         # Close the browser once done
         driver.quit()
-        # print("Browser closed.")
+        print("Browser closed.")
 
 if __name__ == "__main__":
     main()
