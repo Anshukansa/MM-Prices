@@ -1,9 +1,8 @@
 import os
 import time
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import Update, Bot
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from datetime import datetime
-import asyncio
 import logging
 from your_existing_file import setup_driver, get_abc_bullion_price, get_aarav_bullion_prices
 
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 # Store active users who want price updates
 active_users = set()
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
     """Send a message when the command /start is issued."""
     user_id = update.effective_user.id
     active_users.add(user_id)
@@ -29,9 +28,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/unsubscribe - Unsubscribe from updates\n"
         "/help - Show this help message"
     )
-    await update.message.reply_text(welcome_message)
+    update.message.reply_text(welcome_message)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def help_command(update: Update, context: CallbackContext):
     """Send a message when the command /help is issued."""
     help_text = (
         "🤖 Gold Price Tracker Bot Commands:\n\n"
@@ -40,11 +39,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/unsubscribe - Stop receiving updates\n"
         "/help - Show this help message"
     )
-    await update.message.reply_text(help_text)
+    update.message.reply_text(help_text)
 
-async def check_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def check_prices(update: Update, context: CallbackContext):
     """Get current prices when /check command is issued."""
-    await update.message.reply_text("🔍 Checking current gold prices...")
+    update.message.reply_text("🔍 Checking current gold prices...")
     
     try:
         # Initialize the WebDriver
@@ -77,34 +76,34 @@ async def check_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 message += "Aarav Bullion: Price unavailable\n"
             
-            await update.message.reply_text(message)
+            update.message.reply_text(message)
             
         finally:
             driver.quit()
             
     except Exception as e:
         logger.error(f"Error checking prices: {e}")
-        await update.message.reply_text("❌ Sorry, there was an error checking the prices. Please try again later.")
+        update.message.reply_text("❌ Sorry, there was an error checking the prices. Please try again later.")
 
-async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def subscribe(update: Update, context: CallbackContext):
     """Subscribe to price updates."""
     user_id = update.effective_user.id
     if user_id not in active_users:
         active_users.add(user_id)
-        await update.message.reply_text("✅ You've successfully subscribed to price updates! You'll receive updates every hour.")
+        update.message.reply_text("✅ You've successfully subscribed to price updates! You'll receive updates every hour.")
     else:
-        await update.message.reply_text("You're already subscribed to price updates!")
+        update.message.reply_text("You're already subscribed to price updates!")
 
-async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def unsubscribe(update: Update, context: CallbackContext):
     """Unsubscribe from price updates."""
     user_id = update.effective_user.id
     if user_id in active_users:
         active_users.remove(user_id)
-        await update.message.reply_text("❌ You've been unsubscribed from price updates.")
+        update.message.reply_text("❌ You've been unsubscribed from price updates.")
     else:
-        await update.message.reply_text("You're not currently subscribed to updates!")
+        update.message.reply_text("You're not currently subscribed to updates!")
 
-async def send_price_updates(context: ContextTypes.DEFAULT_TYPE):
+def send_price_updates(context: CallbackContext):
     """Send price updates to all subscribed users."""
     if not active_users:
         return
@@ -138,9 +137,10 @@ async def send_price_updates(context: ContextTypes.DEFAULT_TYPE):
                 message += "Aarav Bullion: Price unavailable\n"
             
             # Send to all subscribed users
+            bot = context.bot
             for user_id in active_users:
                 try:
-                    await context.bot.send_message(chat_id=user_id, text=message)
+                    bot.send_message(chat_id=user_id, text=message)
                 except Exception as e:
                     logger.error(f"Error sending update to user {user_id}: {e}")
                     
@@ -157,21 +157,27 @@ def main():
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
 
-    # Create the Application
-    application = Application.builder().token(token).build()
+    # Create the Updater and pass it your bot's token
+    updater = Updater(token)
+
+    # Get the dispatcher to register handlers
+    dp = updater.dispatcher
 
     # Add handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("check", check_prices))
-    application.add_handler(CommandHandler("subscribe", subscribe))
-    application.add_handler(CommandHandler("unsubscribe", unsubscribe))
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("check", check_prices))
+    dp.add_handler(CommandHandler("subscribe", subscribe))
+    dp.add_handler(CommandHandler("unsubscribe", unsubscribe))
 
     # Add job for periodic updates (every hour)
-    application.job_queue.run_repeating(send_price_updates, interval=3600, first=10)
+    updater.job_queue.run_repeating(send_price_updates, interval=3600, first=10)
 
     # Start the bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    updater.start_polling()
+
+    # Run the bot until you press Ctrl-C
+    updater.idle()
 
 if __name__ == "__main__":
     main()
