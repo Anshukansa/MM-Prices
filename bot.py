@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # List of subscriber IDs (replace with your actual subscriber IDs)
 SUBSCRIBERS = {
-    1234567890,  # Example user ID - replace with real ones
+    7932502148  # Example user ID - replace with real ones
 }
 
 def setup_driver():
