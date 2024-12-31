@@ -4,6 +4,13 @@ from telegram import Update, Bot
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from datetime import datetime
 import logging
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 
 # Configure logging
 logging.basicConfig(
@@ -17,84 +24,94 @@ active_users = set()
 
 def setup_driver(headless=True):
     """
-    Sets up the Selenium WebDriver with desired options.
+    Sets up the Selenium WebDriver with desired options for Heroku.
     """
     chrome_options = Options()
+    
     if headless:
-        chrome_options.add_argument("--headless")  # Run in headless mode
-    chrome_options.add_argument("--disable-gpu")  # Applicable to Windows OS only
-    chrome_options.add_argument("--no-sandbox")  # Bypass OS security model
-    chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-    chrome_options.add_argument("--blink-settings=imagesEnabled=false")  # Disable images for faster loading
+        chrome_options.add_argument("--headless")
 
-    # Initialize WebDriver using webdriver-manager for automatic driver management
-    driver = webdriver.Chrome(
-        service=ChromeService(ChromeDriverManager().install()),
-        options=chrome_options
-    )
+    # Add necessary arguments for Heroku
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--proxy-server='direct://'")
+    chrome_options.add_argument("--proxy-bypass-list=*")
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--disable-infobars")
+    chrome_options.add_argument("--disable-browser-side-navigation")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--blink-settings=imagesEnabled=false")
+
+    # Retrieve the Chrome binary location from environment variables
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
+    chrome_options.binary_location = chrome_binary_path
+
+    # Retrieve the Chromedriver path from environment variables
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+
+    # Initialize WebDriver using the specified paths
+    service = Service(executable_path=chromedriver_path)
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+
     return driver
 
 def get_abc_bullion_price(driver, url):
     """
-    Extracts the price from ABC Bullion website.
+    Extracts the price from the ABC Bullion website.
     """
     try:
         driver.get(url)
-        # print(f"Navigated to ABC Bullion URL: {url}")
+        logger.info(f"Navigated to ABC Bullion URL: {url}")
 
-        # Wait until the price element is present
-        wait = WebDriverWait(driver, 10)  # 10 seconds timeout
+        wait = WebDriverWait(driver, 30)
         price_element = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by p.price-container span.price"))
         )
 
-        # Extract the text from the price element
         price_text = price_element.text.strip()
-        print(f"ABC Bullion Price: ${price_text}")
+        logger.info(f"ABC Bullion Price: ${price_text}")
         return price_text
 
     except TimeoutException:
-        print("Timeout: Price element not found on ABC Bullion page.")
+        logger.error("Timeout: Price element not found on ABC Bullion page.")
         return None
     except Exception as e:
-        print(f"Error fetching ABC Bullion price: {e}")
+        logger.error(f"Error fetching ABC Bullion price: {e}")
         return None
 
 def get_aarav_bullion_prices(driver, url):
     """
-    Extracts specific prices from Aarav Bullion website using JavaScript execution to avoid stale elements.
+    Extracts prices from the Aarav Bullion website.
     """
     try:
         driver.get(url)
-        # print(f"Navigated to Aarav Bullion URL: {url}")
+        logger.info(f"Navigated to Aarav Bullion URL: {url}")
 
-        # Wait until the swiper-container is present
-        wait = WebDriverWait(driver, 15)  # Increased timeout to 15 seconds
+        wait = WebDriverWait(driver, 15)
         swiper_container = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.swiper-container.s1"))
         )
-        # print("Swiper container found.")
+        logger.info("Swiper container found.")
 
-        # Optional: Wait for slides to load
-        time.sleep(2)  # Adjust based on network speed
+        time.sleep(2)
 
-        # JavaScript snippet to extract all required data in one go
         script = """
         const data = [];
-        // Select all swiper-slides that contain the Trending_Table_Root
         const slides = document.querySelectorAll("div.swiper-slideTrending");
 
         slides.forEach(slide => {
             const table = slide.querySelector("table.Trending_Table_Root");
             if (table) {
-                // Select all second_table within Trending_Table_Root
                 const second_tables = table.querySelectorAll("table.second_table");
                 second_tables.forEach(second_table => {
                     const rows = second_table.querySelectorAll("tr[style='text-align: center;']");
                     rows.forEach(row => {
                         const label_td = row.querySelector("td.paddingg.second_label");
                         const price_td = row.querySelector("td.paddingg:nth-child(2)");
-                        const buy_td = row.querySelector("td.paddingg:nth-child(3)");  // Third <td>
+                        const buy_td = row.querySelector("td.paddingg:nth-child(3)");
                         if (label_td && price_td && buy_td) {
                             const label = label_td.innerText.trim();
                             const price = price_td.querySelector("span") ? price_td.querySelector("span").innerText.trim() : "";
@@ -109,33 +126,21 @@ def get_aarav_bullion_prices(driver, url):
         return data;
         """
 
-        # Execute the JavaScript and retrieve the data
         prices = driver.execute_script(script)
-        # print(f"Extracted {len(prices)} price entries from Aarav Bullion.")
+        logger.info(f"Extracted {len(prices)} price entries from Aarav Bullion.")
 
         if not prices:
-            print("No price entries found. Possible reasons:")
-            print("- The structure of the website has changed.")
-            print("- The data is loaded asynchronously after the script executes.")
-            print("- The script needs to interact with the page (e.g., clicking on tabs) to load the data.")
+            logger.warning("No price entries found.")
             return None
 
-        # Process and display only the first extracted data entry
         first_price = prices[0]
-        label = first_price['label']
-        price = first_price['price']
-        buy_link = first_price['buyLink']
-
-        print(f"\nAarav Bullion Prices: Rs.{price}")
-        # print(f"{label}: {price}")
-
         return first_price
 
     except TimeoutException:
-        print("Timeout: Swiper container or Trending_Table_Root not found on Aarav Bullion page.")
+        logger.error("Timeout: Elements not found on Aarav Bullion page.")
         return None
     except Exception as e:
-        print(f"Error fetching Aarav Bullion prices: {e}")
+        logger.error(f"Error fetching Aarav Bullion prices: {e}")
         return None
 
 def start(update: Update, context: CallbackContext):
@@ -166,11 +171,9 @@ def help_command(update: Update, context: CallbackContext):
 def check_prices(update: Update, context: CallbackContext):
     """Get current prices when /check command is issued."""
     update.message.reply_text("🔍 Checking current gold prices...")
-    
     try:
         # Initialize the WebDriver
         driver = setup_driver(headless=True)
-        
         try:
             # Get ABC Bullion price
             abc_price = get_abc_bullion_price(
@@ -199,10 +202,8 @@ def check_prices(update: Update, context: CallbackContext):
                 message += "Aarav Bullion: Price unavailable\n"
             
             update.message.reply_text(message)
-            
         finally:
             driver.quit()
-            
     except Exception as e:
         logger.error(f"Error checking prices: {e}")
         update.message.reply_text("❌ Sorry, there was an error checking the prices. Please try again later.")
@@ -232,7 +233,6 @@ def send_price_updates(context: CallbackContext):
         
     try:
         driver = setup_driver(headless=True)
-        
         try:
             # Get prices
             abc_price = get_abc_bullion_price(
@@ -265,10 +265,8 @@ def send_price_updates(context: CallbackContext):
                     bot.send_message(chat_id=user_id, text=message)
                 except Exception as e:
                     logger.error(f"Error sending update to user {user_id}: {e}")
-                    
         finally:
             driver.quit()
-            
     except Exception as e:
         logger.error(f"Error in scheduled update: {e}")
 
@@ -296,6 +294,7 @@ def main():
     updater.job_queue.run_repeating(send_price_updates, interval=3600, first=10)
 
     # Start the bot
+    logger.info("Starting bot...")
     updater.start_polling()
 
     # Run the bot until you press Ctrl-C
