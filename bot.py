@@ -1,213 +1,177 @@
 import os
 import time
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (
-    StaleElementReferenceException,
-    NoSuchElementException,
-    TimeoutException,
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from datetime import datetime
+import asyncio
+import logging
+from your_existing_file import setup_driver, get_abc_bullion_price, get_aarav_bullion_prices
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-def setup_driver(headless=True):
-    """
-    Sets up the Selenium WebDriver with desired options for Heroku.
-    """
-    chrome_options = Options()
+# Store active users who want price updates
+active_users = set()
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a message when the command /start is issued."""
+    user_id = update.effective_user.id
+    active_users.add(user_id)
+    welcome_message = (
+        "👋 Welcome to the Gold Price Tracker Bot!\n\n"
+        "Available commands:\n"
+        "/check - Get current gold prices\n"
+        "/subscribe - Subscribe to price updates\n"
+        "/unsubscribe - Unsubscribe from updates\n"
+        "/help - Show this help message"
+    )
+    await update.message.reply_text(welcome_message)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a message when the command /help is issued."""
+    help_text = (
+        "🤖 Gold Price Tracker Bot Commands:\n\n"
+        "/check - Get current gold prices\n"
+        "/subscribe - Get price updates every hour\n"
+        "/unsubscribe - Stop receiving updates\n"
+        "/help - Show this help message"
+    )
+    await update.message.reply_text(help_text)
+
+async def check_prices(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Get current prices when /check command is issued."""
+    await update.message.reply_text("🔍 Checking current gold prices...")
     
-    if headless:
-        chrome_options.add_argument("--headless")  # Run in headless mode
-
-    # Add necessary arguments for Heroku
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--proxy-server='direct://'")
-    chrome_options.add_argument("--proxy-bypass-list=*")
-    chrome_options.add_argument("--start-maximized")
-    chrome_options.add_argument("--disable-infobars")
-    chrome_options.add_argument("--disable-browser-side-navigation")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-    chrome_options.add_argument("--blink-settings=imagesEnabled=false")  # Disable images for faster loading
-
-    # Retrieve the Chrome binary location from environment variables
-    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN")
-    if not chrome_binary_path:
-        raise EnvironmentError("GOOGLE_CHROME_BIN environment variable not set")
-    chrome_options.binary_location = chrome_binary_path
-
-    # Retrieve the Chromedriver path from environment variables
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
-    if not chromedriver_path:
-        raise EnvironmentError("CHROMEDRIVER_PATH environment variable not set")
-
-    # Initialize WebDriver using the specified paths
-    service = ChromeService(executable_path=chromedriver_path)
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-
-    return driver
-
-def get_abc_bullion_price(driver, url):
-    """
-    Extracts the price from the ABC Bullion website.
-
-    Args:
-        driver (webdriver.Chrome): Selenium WebDriver instance.
-        url (str): URL of the ABC Bullion product page.
-
-    Returns:
-        str or None: Extracted price text or None if not found.
-    """
     try:
-        driver.get(url)
-        print(f"Navigated to ABC Bullion URL: {url}")
-
-        # Wait until the price element is present
-        wait = WebDriverWait(driver, 30)  # Increased timeout to 15 seconds
-        price_element = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.scope-buy-by p.price-container span.price"))
-        )
-
-        # Extract the text from the price element
-        price_text = price_element.text.strip()
-        print(f"ABC Bullion Price: ${price_text}")
-        return price_text
-
-    except TimeoutException:
-        print("Timeout: Price element not found on ABC Bullion page.")
-        return None
+        # Initialize the WebDriver
+        driver = setup_driver(headless=True)
+        
+        try:
+            # Get ABC Bullion price
+            abc_price = get_abc_bullion_price(
+                driver, 
+                "https://www.abcbullion.com.au/store/gold/gabgtael375g-abc-bullion-tael-cast-bar"
+            )
+            
+            # Get Aarav Bullion price
+            aarav_price = get_aarav_bullion_prices(
+                driver, 
+                "https://aaravbullion.in/"
+            )
+            
+            # Format message
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            message = f"📊 Gold Prices as of {current_time}\n\n"
+            
+            if abc_price:
+                message += f"ABC Bullion: ${abc_price}\n"
+            else:
+                message += "ABC Bullion: Price unavailable\n"
+                
+            if aarav_price:
+                message += f"Aarav Bullion: Rs.{aarav_price['price']}\n"
+            else:
+                message += "Aarav Bullion: Price unavailable\n"
+            
+            await update.message.reply_text(message)
+            
+        finally:
+            driver.quit()
+            
     except Exception as e:
-        print(f"Error fetching ABC Bullion price: {e}")
-        return None
+        logger.error(f"Error checking prices: {e}")
+        await update.message.reply_text("❌ Sorry, there was an error checking the prices. Please try again later.")
 
-def get_aarav_bullion_prices(driver, url):
-    """
-    Extracts specific prices from the Aarav Bullion website using JavaScript execution to avoid stale elements.
+async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Subscribe to price updates."""
+    user_id = update.effective_user.id
+    if user_id not in active_users:
+        active_users.add(user_id)
+        await update.message.reply_text("✅ You've successfully subscribed to price updates! You'll receive updates every hour.")
+    else:
+        await update.message.reply_text("You're already subscribed to price updates!")
 
-    Args:
-        driver (webdriver.Chrome): Selenium WebDriver instance.
-        url (str): URL of the Aarav Bullion homepage.
+async def unsubscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unsubscribe from price updates."""
+    user_id = update.effective_user.id
+    if user_id in active_users:
+        active_users.remove(user_id)
+        await update.message.reply_text("❌ You've been unsubscribed from price updates.")
+    else:
+        await update.message.reply_text("You're not currently subscribed to updates!")
 
-    Returns:
-        dict or None: First extracted price entry or None if not found.
-    """
+async def send_price_updates(context: ContextTypes.DEFAULT_TYPE):
+    """Send price updates to all subscribed users."""
+    if not active_users:
+        return
+        
     try:
-        driver.get(url)
-        print(f"Navigated to Aarav Bullion URL: {url}")
-
-        # Wait until the swiper-container is present
-        wait = WebDriverWait(driver, 15)  # Increased timeout to 15 seconds
-        swiper_container = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.swiper-container.s1"))
-        )
-        print("Swiper container found.")
-
-        # Optional: Wait for slides to load
-        time.sleep(2)  # Adjust based on network speed
-
-        # JavaScript snippet to extract all required data in one go
-        script = """
-        const data = [];
-        // Select all swiper-slides that contain the Trending_Table_Root
-        const slides = document.querySelectorAll("div.swiper-slideTrending");
-
-        slides.forEach(slide => {
-            const table = slide.querySelector("table.Trending_Table_Root");
-            if (table) {
-                // Select all second_table within Trending_Table_Root
-                const second_tables = table.querySelectorAll("table.second_table");
-                second_tables.forEach(second_table => {
-                    const rows = second_table.querySelectorAll("tr[style='text-align: center;']");
-                    rows.forEach(row => {
-                        const label_td = row.querySelector("td.paddingg.second_label");
-                        const price_td = row.querySelector("td.paddingg:nth-child(2)");
-                        const buy_td = row.querySelector("td.paddingg:nth-child(3)");  // Third <td>
-                        if (label_td && price_td && buy_td) {
-                            const label = label_td.innerText.trim();
-                            const price = price_td.querySelector("span") ? price_td.querySelector("span").innerText.trim() : "";
-                            const buy_a = buy_td.querySelector("a.btn-default");
-                            const buyLink = buy_a ? buy_a.href.trim() : "";
-                            data.push({ label, price, buyLink });
-                        }
-                    });
-                });
-            }
-        });
-        return data;
-        """
-
-        # Execute the JavaScript and retrieve the data
-        prices = driver.execute_script(script)
-        print(f"Extracted {len(prices)} price entries from Aarav Bullion.")
-
-        if not prices:
-            print("No price entries found. Possible reasons:")
-            print("- The structure of the website has changed.")
-            print("- The data is loaded asynchronously after the script executes.")
-            print("- The script needs to interact with the page (e.g., clicking on tabs) to load the data.")
-            return None
-
-        # Process and display only the first extracted data entry
-        first_price = prices[0]
-        label = first_price['label']
-        price = first_price['price']
-        buy_link = first_price['buyLink']
-
-        print(f"\nAarav Bullion Prices: Rs.{price}")
-        print(f"{label}: {price}")
-        print(f"Buy Link: {buy_link}")
-
-        return first_price
-
-    except TimeoutException:
-        print("Timeout: Swiper container or Trending_Table_Root not found on Aarav Bullion page.")
-        return None
+        driver = setup_driver(headless=True)
+        
+        try:
+            # Get prices
+            abc_price = get_abc_bullion_price(
+                driver, 
+                "https://www.abcbullion.com.au/store/gold/gabgtael375g-abc-bullion-tael-cast-bar"
+            )
+            aarav_price = get_aarav_bullion_prices(
+                driver, 
+                "https://aaravbullion.in/"
+            )
+            
+            # Format message
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            message = f"🔄 Scheduled Update - {current_time}\n\n"
+            
+            if abc_price:
+                message += f"ABC Bullion: ${abc_price}\n"
+            else:
+                message += "ABC Bullion: Price unavailable\n"
+                
+            if aarav_price:
+                message += f"Aarav Bullion: Rs.{aarav_price['price']}\n"
+            else:
+                message += "Aarav Bullion: Price unavailable\n"
+            
+            # Send to all subscribed users
+            for user_id in active_users:
+                try:
+                    await context.bot.send_message(chat_id=user_id, text=message)
+                except Exception as e:
+                    logger.error(f"Error sending update to user {user_id}: {e}")
+                    
+        finally:
+            driver.quit()
+            
     except Exception as e:
-        print(f"Error fetching Aarav Bullion prices: {e}")
-        return None
+        logger.error(f"Error in scheduled update: {e}")
 
 def main():
-    """
-    Main function to execute the Selenium scraping tasks.
-    """
-    # Log the environment variables for debugging
-    chrome_bin = os.environ.get("GOOGLE_CHROME_BIN")
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
-    print("GOOGLE_CHROME_BIN:", chrome_bin)
-    print("CHROMEDRIVER_PATH:", chromedriver_path)
+    """Start the bot."""
+    # Get your token from environment variable
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise ValueError("TELEGRAM_BOT_TOKEN environment variable not set!")
 
-    # Initialize the WebDriver
-    driver = setup_driver(headless=True)
+    # Create the Application
+    application = Application.builder().token(token).build()
 
-    try:
-        # ABC Bullion URL
-        abc_bullion_url = "https://www.abcbullion.com.au/store/gold/gabgtael375g-abc-bullion-tael-cast-bar"
-        abc_price = get_abc_bullion_price(driver, abc_bullion_url)
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("check", check_prices))
+    application.add_handler(CommandHandler("subscribe", subscribe))
+    application.add_handler(CommandHandler("unsubscribe", unsubscribe))
 
-        # Aarav Bullion URL
-        aarav_bullion_url = "https://aaravbullion.in/"
-        aarav_price = get_aarav_bullion_prices(driver, aarav_bullion_url)
+    # Add job for periodic updates (every hour)
+    application.job_queue.run_repeating(send_price_updates, interval=3600, first=10)
 
-        # Example Output Handling
-        if abc_price:
-            print(f"\nRetrieved ABC Bullion Price: ${abc_price}")
-        else:
-            print("\nFailed to retrieve ABC Bullion Price.")
-
-        if aarav_price:
-            print(f"\nRetrieved Aarav Bullion Price: Rs.{aarav_price['price']}")
-        else:
-            print("\nFailed to retrieve Aarav Bullion Prices.")
-
-    finally:
-        # Close the browser once done
-        driver.quit()
-        print("Browser closed.")
+    # Start the bot
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
