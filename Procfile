@@ -1,1 +1,1 @@
-web: gunicorn fbot:app
+web: python bot:app
