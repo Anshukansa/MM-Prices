@@ -19,7 +19,7 @@ SUBSCRIBERS = {
     7932502148  # Example user ID - replace with real ones
 }
 
-MAX_RETRIES = 3  # Number of retries before giving up
+MAX_RETRIES = 30  # Number of retries before giving up
 
 def setup_driver():
     """Sets up the Selenium WebDriver with headless Chrome."""
@@ -209,36 +209,16 @@ def send_update():
                 if formatted_model not in results["Model"]:
                     results["Model"].append(formatted_model)
                 col_name = storage.upper()
-                while len(results[col_name]) < len(results["Model"]) - 1:
-                    results[col_name].append("")
-
                 results[col_name].append(price)
 
-        max_rows = max(len(results[col]) for col in results)
-        for col in results:
-            while len(results[col]) < max_rows:
-                results[col].append("")
-
-        # Format messages by series
         messages = format_message_by_series(results)
-        
-        # Send messages to subscribers
-        for user_id in SUBSCRIBERS:
-            try:
-                for msg in messages:
-                    bot.send_message(
-                        chat_id=user_id,
-                        text=msg,
-                        parse_mode='Markdown'
-                    )
-                    logging.info(f"Message part sent to user {user_id}")
-            except Exception as e:
-                logging.error(f"Failed to send message to user {user_id}: {e}")
+
+        for subscriber_id in SUBSCRIBERS:
+            for message in messages:
+                bot.send_message(chat_id=subscriber_id, text=message, parse_mode="Markdown")
 
     finally:
         driver.quit()
 
-if __name__ == "__main__":
-    logging.info("Starting price update script...")
-    send_update()
-    logging.info("Price update script completed.")
+# Running the update function
+send_update()
