@@ -39,50 +39,70 @@ def setup_driver():
     service = Service(executable_path=chromedriver_path)
     return webdriver.Chrome(service=service, options=options)
 
-def fetch_prices():
-    """Fetches prices for models from the website."""
-    models = [
-        "iphone-11", "iphone-11-pro", "iphone-11-pro-max",
-        "iphone-12", "iphone-12-mini", "iphone-12-pro", "iphone-12-pro-max",
-        "iphone-13", "iphone-13-mini", "iphone-13-pro", "iphone-13-pro-max",
-        "iphone-14", "iphone-14-plus", "iphone-14-pro", "iphone-14-pro-max"
-    ]
-    storages = ["64gb", "128gb", "256gb", "512gb", "1tb"]
-    driver = setup_driver()
-    
-    prices_data = {storage.upper(): [] for storage in storages}
-    prices_data["Model"] = []
-    
-    try:
-        for model in models:
-            for storage in storages:
-                url = format_url(model, storage)
-                logging.info(f"Opening URL: {url}")
-                driver.get(url)
-                try:
-                    reduced_price_element = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located(
-                            (By.XPATH, "//label/div[contains(text(), 'I will accept the reduced price of')]")
-                        )
-                    )
-                    price_text = reduced_price_element.text
-                    price = "N/A"
-                    if "AU$" in price_text:
-                        price = price_text.split("AU$")[-1].split()[0].replace(',', '')
-                    prices_data["Model"].append(model.replace("-", " ").title())
-                    prices_data[storage.upper()].append(price)
-                    logging.info(f"Fetched price for {model} ({storage}): {price}")
-                except Exception as e:
-                    logging.error(f"Error fetching price for {model} ({storage}): {e}")
-                    prices_data[storage.upper()].append("N/A")
-        logging.info(f"Fetched all prices: {prices_data}")
-        return prices_data
-    finally:
-        driver.quit()
-
 def format_url(model, storage):
+    """Formats the URL for the model and storage combination."""
     base_model = "-".join(model.split("-")[:2])
     return f"https://mobilemonster.com.au/sell-your-phone/apple/mobiles/{base_model}/{model}-{storage}"
+
+def format_price(price):
+    """Formats the price with appropriate symbol and color emoji."""
+    if price == "N/A":
+        return "❌"
+    try:
+        price_val = float(price)
+        return f"💰${price}:"  # Format price with 💰 emoji and $ symbol
+    except:
+        return "❌"  # Return ❌ for invalid prices
+
+def fetch_prices_for_two_models(driver, models_pair, storages):
+    """Fetch prices for two models and different storage options."""
+    prices = []
+    tabs = []
+
+    for model in models_pair:
+        for storage in storages:
+            url = format_url(model, storage)
+            logging.info(f"Opening URL: {url}")
+            driver.execute_script(f"window.open('{url}', '_blank');")
+            tabs.append((driver.window_handles[-1], model, storage, url))
+
+    for tab, model, storage, url in tabs:
+        driver.switch_to.window(tab)
+        try:
+            if "Page Not Found" in driver.page_source or "404" in driver.title:
+                price = "N/A"
+            else:
+                reduced_price_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, "//label/div[contains(text(), 'I will accept the reduced price of')]")
+                    )
+                )
+                price_text = reduced_price_element.text
+                if "AU$" in price_text:
+                    price = price_text.split("AU$")[-1].split()[0].replace(',', '')
+                else:
+                    price = "N/A"
+            logging.info(f"Price for {model} ({storage}): {price}")
+        except Exception as e:
+            logging.error(f"Error fetching price for {model} ({storage}): {e}")
+            price = "N/A"
+
+        formatted_price = format_price(price)  # Format the price with the emoji and symbol
+        prices.append((model, storage, formatted_price))
+        driver.close()
+
+    driver.switch_to.window(driver.window_handles[0])
+    return prices
+
+def group_models_by_series(models_data):
+    """Groups models by their series (11, 12, 13, 14)."""
+    series_groups = {}
+    for model in models_data:
+        series = model.split()[1][0:2]  # Gets "11", "12", "13", "14" from model name
+        if series not in series_groups:
+            series_groups[series] = []
+        series_groups[series].append(model)
+    return series_groups
 
 @app.route('/')
 def index():
@@ -93,8 +113,12 @@ def index():
     # Only update if last update was more than an hour ago
     if not prices:
         logging.info("No prices available. Fetching prices now.")
-        prices = fetch_prices()
+        driver = setup_driver()
+        models_pair = ["iphone-11", "iphone-12"]  # Example models to fetch
+        storages = ["64gb", "128gb", "256gb"]
+        prices = fetch_prices_for_two_models(driver, models_pair, storages)
         last_updated = time.time()
+        driver.quit()
 
     return render_template('index.html', prices=prices, last_updated=last_updated, current_time=current_time)
 
@@ -107,9 +131,13 @@ def refresh_prices():
     
     # Only update if the last refresh was more than 1 hour ago
     if last_updated is None or (time.time() - last_updated) > 3600:
-        prices = fetch_prices()
+        driver = setup_driver()
+        models_pair = ["iphone-11", "iphone-12"]  # Example models to fetch
+        storages = ["64gb", "128gb", "256gb"]
+        prices = fetch_prices_for_two_models(driver, models_pair, storages)
         last_updated = time.time()
         logging.info("Prices updated.")
+        driver.quit()
         return redirect(url_for('index'))
     else:
         logging.info("Prices refresh attempted too soon.")
@@ -117,7 +145,11 @@ def refresh_prices():
 
 if __name__ == '__main__':
     # Fetch prices immediately when the script starts
-    prices = fetch_prices()
+    driver = setup_driver()
+    models_pair = ["iphone-11", "iphone-12"]  # Example models to fetch
+    storages = ["64gb", "128gb", "256gb"]
+    prices = fetch_prices_for_two_models(driver, models_pair, storages)
     last_updated = time.time()
     logging.info("Prices fetched at the start of the application.")
+    driver.quit()
     app.run(debug=True)
