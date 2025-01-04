@@ -57,7 +57,7 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
             else:
                 reduced_price_element = WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located(
-                        (By.XPATH, "//label/div[contains(text(), 'I will accept the reduced price of')]")
+                        (By.XPATH, "//span[@class='reduce-price-holder']")
                     )
                 )
                 price_text = reduced_price_element.text
@@ -75,6 +75,7 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
 
     driver.switch_to.window(driver.window_handles[0])
     return prices
+
 
 def group_models_by_series(models_data):
     """Groups models by their series (11, 12, 13, 14)."""
