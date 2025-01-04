@@ -9,6 +9,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import logging
 import telegram
 from datetime import datetime
+import time
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -61,6 +62,7 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
             if "Page Not Found" in driver.page_source or "404" in driver.title:
                 price = "N/A"
             else:
+                time.sleep(5)
                 reduced_price_element = driver.find_element(
                     By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]"
                 )
