@@ -33,8 +33,8 @@ def setup_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN")
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
     options.binary_location = chrome_binary_path
     service = Service(executable_path=chromedriver_path)
     return webdriver.Chrome(service=service, options=options)
@@ -89,6 +89,13 @@ def index():
     """Render the main page with the latest prices."""
     global prices, last_updated
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Only update if last update was more than an hour ago
+    if not prices:
+        logging.info("No prices available. Fetching prices now.")
+        prices = fetch_prices()
+        last_updated = time.time()
+
     return render_template('index.html', prices=prices, last_updated=last_updated, current_time=current_time)
 
 @app.route('/refresh_prices')
@@ -109,4 +116,8 @@ def refresh_prices():
         return jsonify({"message": "Prices can only be refreshed once per hour."})
 
 if __name__ == '__main__':
+    # Fetch prices immediately when the script starts
+    prices = fetch_prices()
+    last_updated = time.time()
+    logging.info("Prices fetched at the start of the application.")
     app.run(debug=True)
