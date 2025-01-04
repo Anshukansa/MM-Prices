@@ -3,153 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📱 iPhone Prices 📱</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <title>📱 iPhone Price Update</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.5.2/css/bootstrap.min.css">
     <style>
         body {
-            font-family: 'Poppins', sans-serif;
-            background-color: #f9f9f9;
-            color: #333;
-            margin: 0;
-            padding: 0;
+            background-color: #f8f9fa;
+            font-family: 'Arial', sans-serif;
+            color: #343a40;
         }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 40px;
-        }
-        
         h1 {
-            text-align: center;
-            font-size: 2.5rem;
-            margin-bottom: 20px;
-            color: #1d3557;
+            color: #007bff;
         }
-
-        .price-table {
-            width: 100%;
+        .container {
+            margin-top: 50px;
+            max-width: 960px;
+        }
+        .table {
             margin-top: 30px;
-            border-collapse: collapse;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            font-size: 16px;
         }
-
-        .price-table th, .price-table td {
-            padding: 15px;
-            text-align: center;
-            font-size: 1.1rem;
+        .table th {
+            background-color: #007bff;
+            color: white;
+        }
+        .table td {
+            background-color: #f8f9fa;
+        }
+        .table-bordered {
             border: 1px solid #ddd;
         }
-
-        .price-table th {
-            background-color: #1d3557;
-            color: white;
-            font-weight: bold;
-        }
-
-        .price-table td {
-            background-color: #fff;
-        }
-
-        .price-table td span {
-            font-size: 1.2rem;
-            font-weight: bold;
-        }
-
-        .btn-refresh {
-            display: block;
-            width: 200px;
-            padding: 12px 20px;
-            background-color: #1d3557;
-            color: #fff;
-            font-size: 1.2rem;
+        .table-bordered td, .table-bordered th {
+            border: 1px solid #ddd;
             text-align: center;
-            margin: 40px auto;
-            border-radius: 25px;
-            cursor: pointer;
-            text-decoration: none;
+        }
+        .btn-refresh {
+            background-color: #007bff;
+            color: white;
+            font-size: 18px;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 30px;
             transition: background-color 0.3s ease;
         }
-
         .btn-refresh:hover {
-            background-color: #457b9d;
+            background-color: #0056b3;
         }
-
-        .last-updated {
+        .alert {
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .model-row {
+            font-size: 14px;
+        }
+        .footer {
+            margin-top: 40px;
             text-align: center;
-            font-size: 1rem;
-            color: #666;
-            margin-top: 20px;
+            color: #6c757d;
         }
-
         .emoji {
-            font-size: 1.5rem;
-        }
-
-        .price-legend {
-            text-align: center;
-            margin-top: 30px;
-            font-size: 0.9rem;
-            color: #777;
-        }
-
-        .price-legend span {
-            margin-right: 15px;
+            font-size: 30px;
         }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>📱 iPhone Prices Update 📱</h1>
+    <h1 class="text-center">📱 iPhone Price Update</h1>
+    <p class="text-center" style="font-size: 18px;">Last Updated: {{ current_time }}</p>
 
-    {% if prices %}
-        <table class="price-table">
-            <thead>
-                <tr>
-                    <th>Model</th>
-                    <th>64GB</th>
-                    <th>128GB</th>
-                    <th>256GB</th>
-                    <th>512GB</th>
-                    <th>1TB</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for model, storages in prices.items() %}
-                    <tr>
-                        <td><span class="emoji">📱</span> {{ model }}</td>
-                        {% for storage in ['64gb', '128gb', '256gb', '512gb', '1tb'] %}
-                            <td>
-                                <span class="emoji">
-                                    {% if storages[storage] == "❌" %}
-                                        ❌
-                                    {% else %}
-                                        💰
-                                    {% endif %}
-                                </span>
-                                {{ storages[storage] }}
-                            </td>
-                        {% endfor %}
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        <p class="last-updated">
-            <strong>Last updated:</strong> {{ last_updated.strftime('%Y-%m-%d %H:%M:%S') }}
-        </p>
-    {% else %}
-        <p class="last-updated">No prices available at the moment.</p>
+    {% if last_updated %}
+        <div class="alert alert-info text-center">
+            <span class="emoji">⏰</span> Prices were last refreshed at: {{ last_updated | timestamp }}
+        </div>
     {% endif %}
 
-    <a href="{{ url_for('refresh_prices') }}" class="btn-refresh">🔄 Refresh Prices</a>
+    <div class="table-responsive">
+        <table class="table table-bordered">
+            <thead>
+            <tr>
+                <th>📱 Model</th>
+                <th>64GB</th>
+                <th>128GB</th>
+                <th>256GB</th>
+                <th>512GB</th>
+                <th>1TB</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for model in prices['Model'] %}
+            <tr class="model-row">
+                <td><strong>{{ model }}</strong></td>
+                <td>{% if prices['64GB'][loop.index0] != 'N/A' %}💰 {{ prices['64GB'][loop.index0] }}{% else %}❌ Not Available{% endif %}</td>
+                <td>{% if prices['128GB'][loop.index0] != 'N/A' %}💰 {{ prices['128GB'][loop.index0] }}{% else %}❌ Not Available{% endif %}</td>
+                <td>{% if prices['256GB'][loop.index0] != 'N/A' %}💰 {{ prices['256GB'][loop.index0] }}{% else %}❌ Not Available{% endif %}</td>
+                <td>{% if prices['512GB'][loop.index0] != 'N/A' %}💰 {{ prices['512GB'][loop.index0] }}{% else %}❌ Not Available{% endif %}</td>
+                <td>{% if prices['1TB'][loop.index0] != 'N/A' %}💰 {{ prices['1TB'][loop.index0] }}{% else %}❌ Not Available{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
-    <div class="price-legend">
-        <span><span class="emoji">💰</span> Available Price</span>
-        <span><span class="emoji">❌</span> Not Available</span>
+    <div class="text-center">
+        <a href="{{ url_for('refresh_prices') }}" class="btn-refresh">🔄 Refresh Prices</a>
+    </div>
+
+    <div class="footer">
+        <p>🕒 Prices updated every hour</p>
+        <p>💡 Prices shown are for Australian market</p>
     </div>
 </div>
 
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.2/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
 </body>
 </html>
