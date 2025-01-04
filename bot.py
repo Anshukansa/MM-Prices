@@ -52,13 +52,17 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
     for tab, model, storage, url in tabs:
         driver.switch_to.window(tab)
         try:
+            # Explicit wait to ensure the page loads and the price element becomes visible
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]")
+                )
+            )
             if "Page Not Found" in driver.page_source or "404" in driver.title:
                 price = "N/A"
             else:
-                reduced_price_element = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]")
-                    )
+                reduced_price_element = driver.find_element(
+                    By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]"
                 )
                 price_text = reduced_price_element.text
                 if "AU$" in price_text:
@@ -75,7 +79,6 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
 
     driver.switch_to.window(driver.window_handles[0])
     return prices
-
 
 def group_models_by_series(models_data):
     """Groups models by their series (11, 12, 13, 14)."""
@@ -184,6 +187,7 @@ def send_update():
                 col_name = storage.upper()
                 while len(results[col_name]) < len(results["Model"]) - 1:
                     results[col_name].append("")
+
                 results[col_name].append(price)
 
         max_rows = max(len(results[col]) for col in results)
