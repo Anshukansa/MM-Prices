@@ -19,3 +19,5 @@ async-timeout==4.0.3
 # Extras for web scraping
 beautifulsoup4==4.12.2
 lxml==4.9.3
+
+Flask
