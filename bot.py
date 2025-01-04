@@ -55,13 +55,12 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
             if "Page Not Found" in driver.page_source or "404" in driver.title:
                 price = "N/A"
             else:
-                # Wait for the element to be visible using CSS selector
-                reduced_price_element = WebDriverWait(driver, 20).until(
-                    EC.visibility_of_element_located(
-                        (By.CSS_SELECTOR, "label > div")
+                reduced_price_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]")
                     )
                 )
-                price_text = reduced_price_element.text.strip()
+                price_text = reduced_price_element.text
                 if "AU$" in price_text:
                     price = price_text.split("AU$")[-1].split()[0].replace(',', '')
                 else:
@@ -76,7 +75,6 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
 
     driver.switch_to.window(driver.window_handles[0])
     return prices
-
 
 
 def group_models_by_series(models_data):
