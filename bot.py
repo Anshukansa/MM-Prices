@@ -35,8 +35,8 @@ def setup_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
     
     options.binary_location = chrome_binary_path
     service = Service(executable_path=chromedriver_path)
