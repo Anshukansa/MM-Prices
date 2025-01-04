@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from datetime import datetime
 from flask import Flask, render_template, jsonify, redirect, url_for
 from selenium import webdriver
@@ -22,6 +23,9 @@ SUBSCRIBERS = {
     7932502148  # Example user ID - replace with real ones
 }
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
 def setup_driver():
     """Sets up the Selenium WebDriver with headless Chrome."""
     options = Options()
@@ -29,8 +33,8 @@ def setup_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
-    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
     options.binary_location = chrome_binary_path
     service = Service(executable_path=chromedriver_path)
     return webdriver.Chrome(service=service, options=options)
@@ -67,9 +71,11 @@ def fetch_prices():
                         price = price_text.split("AU$")[-1].split()[0].replace(',', '')
                     prices_data["Model"].append(model.replace("-", " ").title())
                     prices_data[storage.upper()].append(price)
+                    logging.info(f"Fetched price for {model} ({storage}): {price}")
                 except Exception as e:
                     logging.error(f"Error fetching price for {model} ({storage}): {e}")
                     prices_data[storage.upper()].append("N/A")
+        logging.info(f"Fetched all prices: {prices_data}")
         return prices_data
     finally:
         driver.quit()
@@ -90,12 +96,16 @@ def refresh_prices():
     """Handles refreshing the prices."""
     global prices, last_updated
     
+    logging.info("Refresh prices button clicked.")
+    
     # Only update if the last refresh was more than 1 hour ago
     if last_updated is None or (time.time() - last_updated) > 3600:
         prices = fetch_prices()
         last_updated = time.time()
+        logging.info("Prices updated.")
         return redirect(url_for('index'))
     else:
+        logging.info("Prices refresh attempted too soon.")
         return jsonify({"message": "Prices can only be refreshed once per hour."})
 
 if __name__ == '__main__':
