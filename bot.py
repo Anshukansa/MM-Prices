@@ -19,6 +19,8 @@ SUBSCRIBERS = {
     7932502148  # Example user ID - replace with real ones
 }
 
+MAX_RETRIES = 3  # Number of retries before giving up
+
 def setup_driver():
     """Sets up the Selenium WebDriver with headless Chrome."""
     options = Options()
@@ -39,6 +41,42 @@ def format_url(model, storage):
     base_model = "-".join(model.split("-")[:2])
     return f"https://mobilemonster.com.au/sell-your-phone/apple/mobiles/{base_model}/{model}-{storage}"
 
+def fetch_price_with_retries(driver, model, storage, url):
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            logging.info(f"Attempt {retries+1} to fetch price for {model} ({storage})")
+            driver.get(url)
+            
+            # Wait for the element to load
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]")
+                )
+            )
+            
+            if "Page Not Found" in driver.page_source or "404" in driver.title:
+                return "N/A"
+            
+            time.sleep(5)  # Sleep to ensure that the price is fully loaded
+            
+            reduced_price_element = driver.find_element(
+                By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]"
+            )
+            price_text = reduced_price_element.text
+            
+            if "AU$" in price_text:
+                return price_text.split("AU$")[-1].split()[0].replace(',', '')
+            else:
+                return "N/A"
+        
+        except Exception as e:
+            logging.error(f"Error fetching price for {model} ({storage}) on attempt {retries+1}: {e}")
+            retries += 1
+            time.sleep(5)  # Sleep before retrying
+
+    return "N/A"  # Return N/A after all retries
+
 def fetch_prices_for_two_models(driver, models_pair, storages):
     prices = []
     tabs = []
@@ -53,24 +91,8 @@ def fetch_prices_for_two_models(driver, models_pair, storages):
     for tab, model, storage, url in tabs:
         driver.switch_to.window(tab)
         try:
-            # Explicit wait to ensure the page loads and the price element becomes visible
-            WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]")
-                )
-            )
-            if "Page Not Found" in driver.page_source or "404" in driver.title:
-                price = "N/A"
-            else:
-                time.sleep(5)
-                reduced_price_element = driver.find_element(
-                    By.XPATH, "//label[input[@value='yes']]/div[contains(text(), 'I will accept the reduced price of')]"
-                )
-                price_text = reduced_price_element.text
-                if "AU$" in price_text:
-                    price = price_text.split("AU$")[-1].split()[0].replace(',', '')
-                else:
-                    price = "N/A"
+            # Attempt to fetch price with retries
+            price = fetch_price_with_retries(driver, model, storage, url)
             logging.info(f"Price for {model} ({storage}): {price}")
         except Exception as e:
             logging.error(f"Error fetching price for {model} ({storage}): {e}")
@@ -98,7 +120,7 @@ def format_price(price):
         return "❌"
     try:
         price_val = float(price)
-        return f"💰${price}:"
+        return f"💰${price}:"  # Formatting the price
     except:
         return "❌"
 
