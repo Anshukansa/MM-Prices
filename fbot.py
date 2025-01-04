@@ -1,92 +1,102 @@
 import os
-import logging
-from datetime import datetime, timedelta
-from flask import Flask, render_template, redirect, url_for
-import telegram
+import time
+from datetime import datetime
+from flask import Flask, render_template, jsonify, redirect, url_for
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-from threading import Lock
 
+# Flask app initialization
 app = Flask(__name__)
 
-# Configuration for price update
-LAST_UPDATED = None  # To store the last update timestamp
-PRICES = {}  # To store the prices
-LOCK = Lock()  # To ensure thread safety for price updates
+# Store prices globally
+prices = {}
+last_updated = None
 
-# Subscriber list for Telegram notifications
+# List of subscriber IDs (replace with actual ones)
 SUBSCRIBERS = {
-    7932502148  # Example user ID, replace with real ones
+    7932502148  # Example user ID - replace with real ones
 }
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+def setup_driver():
+    """Sets up the Selenium WebDriver with headless Chrome."""
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    chrome_binary_path = os.environ.get("GOOGLE_CHROME_BIN", "/usr/bin/google-chrome")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH", "/usr/local/bin/chromedriver")
+    options.binary_location = chrome_binary_path
+    service = Service(executable_path=chromedriver_path)
+    return webdriver.Chrome(service=service, options=options)
 
-# Fetch prices from the website
 def fetch_prices():
-    # This function is similar to your existing price fetching logic,
-    # but now it will update the global PRICES variable
-    global PRICES, LAST_UPDATED
-    with LOCK:
-        # Simulate fetching data and updating the global PRICES dictionary
-        models = [
-            "iphone-11", "iphone-11-pro", "iphone-11-pro-max",
-            "iphone-12", "iphone-12-mini", "iphone-12-pro", "iphone-12-pro-max",
-            "iphone-13", "iphone-13-mini", "iphone-13-pro", "iphone-13-pro-max",
-            "iphone-14", "iphone-14-plus", "iphone-14-pro", "iphone-14-pro-max"
-        ]
-        storages = ["64gb", "128gb", "256gb", "512gb", "1tb"]
-        
-        # Mock prices for demonstration
-        prices = {model: {storage: f"${(i+1) * 100}" for storage in storages} for i, model in enumerate(models)}
+    """Fetches prices for models from the website."""
+    models = [
+        "iphone-11", "iphone-11-pro", "iphone-11-pro-max",
+        "iphone-12", "iphone-12-mini", "iphone-12-pro", "iphone-12-pro-max",
+        "iphone-13", "iphone-13-mini", "iphone-13-pro", "iphone-13-pro-max",
+        "iphone-14", "iphone-14-plus", "iphone-14-pro", "iphone-14-pro-max"
+    ]
+    storages = ["64gb", "128gb", "256gb", "512gb", "1tb"]
+    driver = setup_driver()
+    
+    prices_data = {storage.upper(): [] for storage in storages}
+    prices_data["Model"] = []
+    
+    try:
+        for model in models:
+            for storage in storages:
+                url = format_url(model, storage)
+                logging.info(f"Opening URL: {url}")
+                driver.get(url)
+                try:
+                    reduced_price_element = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located(
+                            (By.XPATH, "//label/div[contains(text(), 'I will accept the reduced price of')]")
+                        )
+                    )
+                    price_text = reduced_price_element.text
+                    price = "N/A"
+                    if "AU$" in price_text:
+                        price = price_text.split("AU$")[-1].split()[0].replace(',', '')
+                    prices_data["Model"].append(model.replace("-", " ").title())
+                    prices_data[storage.upper()].append(price)
+                except Exception as e:
+                    logging.error(f"Error fetching price for {model} ({storage}): {e}")
+                    prices_data[storage.upper()].append("N/A")
+        return prices_data
+    finally:
+        driver.quit()
 
-        # Update global prices and timestamp
-        PRICES = prices
-        LAST_UPDATED = datetime.now()
-        logging.info("Prices updated successfully")
+def format_url(model, storage):
+    base_model = "-".join(model.split("-")[:2])
+    return f"https://mobilemonster.com.au/sell-your-phone/apple/mobiles/{base_model}/{model}-{storage}"
 
-# Flask route to display the prices
 @app.route('/')
 def index():
-    return render_template('index.html', prices=PRICES, last_updated=LAST_UPDATED)
+    """Render the main page with the latest prices."""
+    global prices, last_updated
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return render_template('index.html', prices=prices, last_updated=last_updated, current_time=current_time)
 
-# Flask route to handle the price refresh button
-@app.route('/refresh')
+@app.route('/refresh_prices')
 def refresh_prices():
-    global LAST_UPDATED
+    """Handles refreshing the prices."""
+    global prices, last_updated
+    
+    # Only update if the last refresh was more than 1 hour ago
+    if last_updated is None or (time.time() - last_updated) > 3600:
+        prices = fetch_prices()
+        last_updated = time.time()
+        return redirect(url_for('index'))
+    else:
+        return jsonify({"message": "Prices can only be refreshed once per hour."})
 
-    # Check if an hour has passed since the last update
-    if LAST_UPDATED and datetime.now() - LAST_UPDATED < timedelta(hours=1):
-        logging.info("Price refresh attempted too soon")
-        return redirect(url_for('index'))  # Redirect back to the main page without updating
-
-    # Fetch new prices if it's time to update
-    fetch_prices()
-
-    # Notify subscribers via Telegram (optional)
-    send_telegram_update()
-
-    return redirect(url_for('index'))
-
-# Function to send Telegram notifications
-def send_telegram_update():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not token:
-        raise ValueError("TELEGRAM_BOT_TOKEN not set!")
-    bot = telegram.Bot(token=token)
-
-    # Sending the message to all subscribers
-    for user_id in SUBSCRIBERS:
-        try:
-            bot.send_message(chat_id=user_id, text="The prices have been updated!")
-            logging.info(f"Sent update to user {user_id}")
-        except Exception as e:
-            logging.error(f"Failed to send message to user {user_id}: {e}")
-
-# Run the Flask app
-if __name__ == "__main__":
-    logging.info("Starting Flask app...")
-    fetch_prices()  # Initial fetch of prices
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    app.run(debug=True)
